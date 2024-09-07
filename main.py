@@ -32,7 +32,7 @@ def main():
     args = parser.parse_args()
     # gpu id must be set before "import torch"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    from utils import get_top_acts, check_acc, set_seed, safe_infer, karpathy_coco_test, TextEvaluation, split_mask_prefix
+    from utils.func import get_top_acts, check_acc, set_seed, safe_infer, karpathy_coco_test, TextEvaluation, split_mask_prefix
     from models import Qwen2_VL
     set_seed(2024)
 

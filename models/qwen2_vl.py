@@ -2,7 +2,7 @@
 import numpy as np
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-from utils import create_hook
+from utils.func import create_hook
 
 class Qwen2_VL:
     """
