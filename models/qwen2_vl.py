@@ -10,8 +10,12 @@ class Qwen2_VL:
     """
     def __init__(self, args, mask_modules=None, masks=None):
         self.masks = masks
+        model_path = "/home/ubuntu/models/Qwen2-VL-7B-Instruct"
+        # self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+        #     "Qwen/Qwen2-VL-7B-Instruct", torch_dtype="auto", device_map="auto"
+        # )
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            "Qwen/Qwen2-VL-7B-Instruct", torch_dtype="auto", device_map="auto"
+            model_path, torch_dtype="auto", device_map="auto"
         )
         # We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
         # model = Qwen2VLForConditionalGeneration.from_pretrained(
@@ -87,7 +91,16 @@ class Qwen2_VL:
             padding=True,
             return_tensors="pt",
         )
-        inputs = inputs.to("cuda:0")
+        # inputs = inputs.to("cuda:0")
+
+        model_device = next(self.model.parameters()).device
+        data_device = inputs['input_ids'].device
+
+        if model_device != data_device:
+            import torch
+            if torch.cuda.is_available():
+                self.model = self.model.to('cuda')
+                inputs = inputs.to('cuda')
 
         # Inference: Generation of the output
         generated_ids = self.model.generate(**inputs, max_new_tokens=128)

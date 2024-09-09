@@ -10,6 +10,7 @@ from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from .crop import crop
 
 class TextEvaluation:
     """
@@ -300,3 +301,88 @@ def safe_infer(model, data):
                     img_path = new_path
                 else:
                     raise e
+
+def softmax(x):
+    """
+    softmax
+    """
+    z = x - max(x)
+    numerator = np.exp(z)
+    denominator = np.sum(numerator)
+    softmax = numerator/denominator
+    return softmax
+
+def format_subject(subject):
+    """
+    format subject
+    """
+    l = subject.split("_")
+    s = ""
+    for entry in l:
+        s += " " + entry
+    return s
+
+def format_example(df, idx, include_answer=True):
+    """
+    format example
+    """
+    choices = ["A", "B", "C", "D"]
+    prompt = df.iloc[idx, 0]
+    k = df.shape[1] - 2
+    for j in range(k):
+        prompt += f"\n{choices[j]}. {df.iloc[idx, j+1]}"
+    prompt += "\nAnswer:"
+    if include_answer:
+        prompt += f" {df.iloc[idx, k + 1]}\n\n"
+    return prompt
+
+def gen_prompt(train_df, subject, k=-1):
+    """
+    generate prompt
+    """
+    prompt = f"The following are multiple choice questions (with answers) about {format_subject(subject)}.\n\n"
+    if k == -1:
+        k = train_df.shape[0]
+    for i in range(k):
+        prompt += format_example(train_df, i)
+    return prompt
+
+def eval_mmlu(model, subject, dev_df, test_df, qa_index, qa_num, ntrain):
+    """
+    answer the questions from subject one by one
+    """
+    print(f'next is the subject: {subject}, the qa numbers: {test_df.shape[0]}')
+    cors = []
+    preds = []
+    k = ntrain
+
+    for i in range(test_df.shape[0]):
+        # get prompt and make sure it fits
+        if qa_index >= qa_num:
+            return np.array(cors), qa_index
+        print(f'question {qa_index}:')
+        prompt_end = format_example(test_df, i, include_answer=False)
+        train_prompt = gen_prompt(dev_df, subject, k)
+        prompt = train_prompt + prompt_end
+
+        while crop(prompt) != prompt:
+            k -= 1
+            train_prompt = gen_prompt(dev_df, subject, k)
+            prompt = train_prompt + prompt_end
+
+        label = test_df.iloc[i, test_df.shape[1]-1]
+        pred = safe_infer(model, {'text': prompt})
+
+        print(f"raw pred:{pred}, pred: {pred[0]}, label:{label}")
+        cor = pred[0] == label
+        cors.append(cor)
+        preds.append((pred, pred[0], label))
+        qa_index += 1
+
+    acc = np.mean(cors)
+    cors = np.array(cors)
+
+    print(f"Average accuracy {acc:.3f} - {subject}\n")
+    print(cors)
+    print(preds)
+    return cors, qa_index
