@@ -33,7 +33,10 @@ class Qwen2_VL:
         self.args.hidden_size = 18944
 
         # use dict to store mask for all possible modals
-        args.mask_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in self.args.mask_modal}
+        score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
+        # mask_modal depends on benchmark type
+        score_filenames = [f'{modal}_{stype}' for modal, stype in zip(self.args.mask_modal, score_types)]
+        args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
 
         # register hooks
         for i in range(self.args.layer_num):

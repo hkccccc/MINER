@@ -63,7 +63,7 @@ def main():
             os.makedirs(args.folder_path + 'importance_scores')
             with open(args.folder_path + 'run.sh', mode='w', encoding='utf-8') as f:
                 f.write(cmd_str)
-            sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
+            # sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
             uf.initialize_csv('origin.csv', args)
         else:
             # check whether need to resume
@@ -109,11 +109,7 @@ def main():
             'text': 'what is the brand of this camera?',
             'img': '/home/ubuntu/kaichen/data/TextVQA/val/train_images/003a8ae2ef43b901.jpg'
         }
-        data4 = {
-            'text': "describe this image",
-            'img': "scripts/large.jpg"
-        }
-        response = model.infer(data4)
+        response = model.infer(data1)
         print(response)
 
     elif args.task == 'text_vqa':

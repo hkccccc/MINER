@@ -7,13 +7,13 @@ from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torch.nn.functional as F
 from pycocotools.coco import COCO
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from .crop import crop
-
 
 class TextEvaluation:
     """
@@ -234,13 +234,14 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     mask = mask.squeeze(0)
     attn_score = args.attn_score.squeeze(0)
     attn_score = attn_score[mask, :][:, mask]
-    attn_val = torch.matmul(attn_score, flat_tensor) # attn1
-    # attn2_val = torch.matmul(attn_score.T, flat_tensor) # attn2
+    attn_k = F.softmax(attn_score, dim=0) # dim0, softmax on column / key
+    attn_val_k = torch.matmul(attn_k.T, flat_tensor)
+    attn_q = F.softmax(attn_score, dim=1) # dim1, softmax on row / query
+    attn_val_q = torch.matmul(attn_q, flat_tensor)
 
-    val_lst = [prob_val, mean_val, max_val, attn_val]
-    assert sum(args.score_weights) == 1
-    sum_val = sum(min_max_normalize(val) * weight for val, weight in zip(val_lst, args.score_weights))
-    return torch.sum(sum_val, dim=0)
+    keys = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
+    values = [prob_val, mean_val, max_val, torch.sum(attn_val_k, dim=0), torch.sum(attn_val_q, dim=0)]
+    return {key: min_max_normalize(value) for key, value in zip(keys, values)}
 
 def create_act_hook(layer_index, args):
     """
@@ -249,22 +250,22 @@ def create_act_hook(layer_index, args):
     args.K = int(args.select_ratio * args.hidden_size)
 
     def activation_hook(module, input, output):
-        # if args.mode == 0 or args.mode == 2:
-        if args.mode == 0 or 'None' in args.mask_modal:
+        if args.mode == 0:
             return output
+        elif args.mode == 2:
+            pass # load and apply
 
         args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
 
         # generate or load importance matrix
         if output.shape[:-1] == args.modal_mask['text'].shape:
-            if args.mode == 2: # save importance matrix, not apply mask
-                for modal in args.mask_modal:
-                    mask = args.modal_mask[modal]
-                    layer_imp_val = get_neuron_importance_scores_in_layer(output, mask, args)
-                    args.mask_dict[modal][layer_index] += layer_imp_val
+            for modal in args.mask_modal:
+                mask = args.modal_mask[modal]
+                dic_score = get_neuron_importance_scores_in_layer(output, mask, args)
+                import pdb
+                pdb.set_trace()
+                # args.mask_dict[modal][layer_index] += layer_imp_val
 
-            else: # load and apply mask
-                pass
         
         # # apply mask if need?
         # for modal in args.mask_modal:
