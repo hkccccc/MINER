@@ -29,11 +29,14 @@ def main():
     # mode 1: create folder and save mask
     # mode 2: load and apply mask
 
+    parser.add_argument('--mask_modal', type=str, nargs='+', default=["text", "special", "all"], help="choose from ALL_MODALITIES[mllm] to mask")
+    # get mask: all possible modals
+    # apply mask: subset of "all possible modals"
+
     # importance matrix
     parser.add_argument('--vqa_num', type=int, default=-1, help="number of vqa questions, -1 means all questions")
-    parser.add_argument('--score_weights', type=float, nargs='+', default=[0,0.5,0.4,0.1], help="weights of [prob, mean, max, attn], sum=1")
+    parser.add_argument('--score_weights', type=float, nargs='+', default=[0,0.5,0.3,0.1,0.1], help="weights of [prob,mean,max,attn_k,attn_q], sum=1")
     # apply mask
-    parser.add_argument('--mask_modal', type=str, nargs='+', default=["text", "special", "all"], help="choose from ALL_MODALITIES[mllm] to mask")
     parser.add_argument('--deact_val', type=float, default=0, help="output value of a deactivated neuron, -1 means output.min()")
     parser.add_argument('--select_ratio', type=float, default=0.01, help="the ratio of selected neurons")
     parser.add_argument('--selection', type=str, choices=SELECTION_TYPES, default="uniform")
@@ -70,7 +73,6 @@ def main():
             sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
             df = pd.read_csv(args.folder_path + 'origin.csv')
             if df['index'].iloc[-1] != args.vqa_num - 1:
-                # 继续跑origin.csv，记得更新mask，resume
                 args.vqa_start_point = df['index'].iloc[-1] + 1
                 args.mmlu_resume_args = (df["dataset name"].iloc[-1], df["sub-index"].iloc[-1])
                 uf.initialize_csv('origin.csv', args)

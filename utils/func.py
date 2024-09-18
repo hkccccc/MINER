@@ -237,9 +237,15 @@ def create_act_hook(layer_index, args):
         if args.mode == 0:
             return output
         elif args.mode == 2:
+            args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
+            ts = 100
+            score_path = f'{args.folder_path}importance_scores/'
+            assert sum(args.score_weights) == 1
+            # load importance scores and compute weighted sum
+            import pdb
+            pdb.set_trace()
             pass # load and apply
 
-        args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
         if output.shape[:-1] == args.modal_mask['text'].shape:
             for modal in args.mask_modal:
                 mask = args.modal_mask[modal]
