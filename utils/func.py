@@ -256,21 +256,13 @@ def create_act_hook(layer_index, args):
             pass # load and apply
 
         args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-
-        # generate or load importance matrix
         if output.shape[:-1] == args.modal_mask['text'].shape:
             for modal in args.mask_modal:
                 mask = args.modal_mask[modal]
                 dic_score = get_neuron_importance_scores_in_layer(output, mask, args)
-                import pdb
-                pdb.set_trace()
-                # args.mask_dict[modal][layer_index] += layer_imp_val
-
+                for score_type in dic_score.keys():
+                    args.score_dict[f'{modal}_{score_type}'][layer_index] += dic_score[score_type] 
         
-        # # apply mask if need?
-        # for modal in args.mask_modal:
-        #     output[..., module.mask_ind[modal]] = args.deact_val
-
         return output
     return activation_hook
 

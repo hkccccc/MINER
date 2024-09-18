@@ -1,5 +1,7 @@
 """class definition for Qwen2-VL"""
 import torch
+import os
+import pickle
 import numpy as np
 from qwen_vl_utils import process_vision_info
 # from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
@@ -32,12 +34,6 @@ class Qwen2_VL:
         self.args.layer_num = int(len(self.model.model.layers)) # 28
         self.args.hidden_size = 18944
 
-        # use dict to store mask for all possible modals
-        score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
-        # mask_modal depends on benchmark type
-        score_filenames = [f'{modal}_{stype}' for modal, stype in zip(self.args.mask_modal, score_types)]
-        args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
-
         # register hooks
         for i in range(self.args.layer_num):
             act_hook = create_act_hook(i, self.args)
@@ -50,6 +46,15 @@ class Qwen2_VL:
         """
         inference on the given information
         """
+        # use dict to store mask for all possible modals
+        score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
+        # mask_modal depends on benchmark type
+        score_filenames = []
+        for modal in self.args.mask_modal:
+            for stype in score_types:
+                score_filenames.append(f'{modal}_{stype}')
+        self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
+        
         prompt, img_path = data.get('text'), data.get('img')
         messages = [
             {
@@ -101,4 +106,17 @@ class Qwen2_VL:
         output_text = self.processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
+
+        for key in self.args.score_dict.keys():
+            score_file = f'{self.args.folder_path}importance_scores/{key}.npy'
+            if not os.path.exists(score_file):
+                with open(score_file, 'wb') as f:
+                    pickle.dump(self.args.score_dict[key], f)
+            else:
+                with open(score_file, 'rb') as f:
+                    curr_scores = pickle.load(f)
+                curr_scores += self.args.score_dict[key]
+                with open(score_file, 'wb') as f:
+                    pickle.dump(curr_scores, f)
+
         return output_text[0]

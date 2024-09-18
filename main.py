@@ -34,7 +34,7 @@ def main():
     parser.add_argument('--vqa_num', type=int, default=-1, help="number of vqa questions, -1 means all questions")
     parser.add_argument('--score_weights', type=float, nargs='+', default=[0,0.5,0.4,0.1], help="weights of [prob, mean, max, attn], sum=1")
     # apply mask
-    parser.add_argument('--mask_modal', type=str, nargs='+', default=["image"], help="choose from ALL_MODALITIES[mllm] to mask")
+    parser.add_argument('--mask_modal', type=str, nargs='+', default=["image", "text"], help="choose from ALL_MODALITIES[mllm] to mask")
     parser.add_argument('--deact_val', type=float, default=0, help="output value of a deactivated neuron, -1 means output.min()")
     parser.add_argument('--select_ratio', type=float, default=0.01, help="the ratio of selected neurons")
     parser.add_argument('--selection', type=str, choices=SELECTION_TYPES, default="uniform")
