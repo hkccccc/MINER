@@ -3,7 +3,6 @@ import random
 import os
 import csv
 import torch
-from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -164,21 +163,6 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def get_top_acts(arr, ratio=0.01):
-    """
-    select the top x% neurons with highest activation frequency
-    """
-    num = int(arr.shape[0] * arr.shape[1] * ratio)
-    flat_arr = arr.flatten()
-    top_indices = np.argsort(flat_arr)[-num:]
-    top_coords = np.unravel_index(top_indices, arr.shape)
-    top_values = flat_arr[top_indices]
-    ret = {i: {'neuron_index': [], 'activations': []} for i in range(arr.shape[0])}
-    for value, (row, col) in zip(top_values, zip(*top_coords)):
-        ret[row]['neuron_index'].append(col)
-        ret[row]['activations'].append(value)
-    return ret
-
 def check_acc(response, ans):
     """
     Check if one of the answers appears in response
@@ -289,7 +273,9 @@ def create_attn_hook(layer_index, args):
     return attn_hook
 
 def initialize_csv(csv_name, args):
-    # basic information
+    """
+    initialize csv file
+    """
     args.csv_path = args.folder_path + csv_name
     args.csv_fieldnames = ["index", "dataset name", "sub-index", "text", "img", "video", "audio", "answer", "label"]
     args.csv_file = open(args.csv_path, mode='a+', newline='', encoding='utf-8')
@@ -400,61 +386,3 @@ def mmlu_get_next_sample(current_sample, counts):
         else:
             # No more categories
             return None
-
-def get_k_neurons(mask_dict, K):
-    all_neurons = []
-    for layer_idx, importance_tensor in mask_dict.items():
-        num_neurons = importance_tensor.shape[1]
-        for neuron_idx in range(num_neurons):
-            importance = importance_tensor[0, neuron_idx].item()
-            all_neurons.append((importance, (layer_idx, neuron_idx)))
-
-    all_neurons_sorted = sorted(all_neurons, key=lambda x: x[0], reverse=True)
-    select_neurons = []
-    top_n_neurons = all_neurons_sorted[:K]
-    for importance, (layer_num, neuron_idx) in top_n_neurons:
-        select_neurons.append((layer_num, neuron_idx, importance))
-    return select_neurons
-
-def get_mask(N, args):
-    # Step 1: 汇总所有层的神经元重要性及其全局索引
-    importance_all = []
-    layer_sizes = []
-    start_index = 0
-
-    for layer, importance_tensor in args.mask_dict.items():
-        importance_all.append(importance_tensor.view(-1))  # 将张量展平为一维
-        layer_sizes.append(importance_tensor.numel())  # 记录每一层的神经元数目
-        start_index += importance_tensor.numel()
-
-    # 拼接所有层的重要性
-    importance_all = torch.cat(importance_all)
-
-    # Step 2: 使用 torch.topk 获取全局范围内前 N 个最重要神经元及其全局索引
-    topk_values, topk_global_indices = torch.topk(importance_all, N)
-
-    # Step 3: 创建与每层相同大小的 bool 掩码，并将对应的 top-k 神经元设置为 True
-    current_start = 0
-    for layer, importance_tensor in args.mask_dict.items():
-        # 创建与当前层形状相同的布尔掩码
-        mask = torch.zeros_like(importance_tensor, dtype=torch.bool)
-
-        # 获取当前层的索引范围
-        layer_size = importance_tensor.numel()
-        layer_indices = torch.arange(current_start, current_start + layer_size)
-
-        # 找出属于当前层的神经元的全局索引
-        layer_topk_indices = topk_global_indices[(topk_global_indices >= current_start) & (topk_global_indices < current_start + layer_size)] - current_start
-        
-        # 标记这些神经元在掩码中为 True
-        if layer_topk_indices.numel() > 0:
-            mask.view(-1)[layer_topk_indices] = True
-        
-        # 将掩码保存回字典
-        args.mask_dict[layer] = mask
-        
-        # 更新下一层的起始索引
-        current_start += layer_size
-    # 检查每层的掩码
-    for layer, mask in args.mask_dict.items():
-        print(f"Layer {layer}: mask shape {mask.shape}, True count: {mask.sum().item()}")
