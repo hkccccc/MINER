@@ -50,14 +50,15 @@ class Qwen2_VL:
         """
         inference on the given information
         """
-        # use dict to store mask for all possible modals
-        score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
-        # mask_modal depends on benchmark type
-        score_filenames = []
-        for modal in self.args.mask_modal:
-            for stype in score_types:
-                score_filenames.append(f'{modal}_{stype}')
-        self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
+        if self.args.mode == 1:
+            # use dict to store mask for all possible modals
+            score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
+            # mask_modal depends on benchmark type
+            score_filenames = []
+            for modal in self.args.mask_modal:
+                for stype in score_types:
+                    score_filenames.append(f'{modal}_{stype}')
+            self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
         
         prompt, img_path = data.get('text'), data.get('img')
         messages = [
@@ -111,20 +112,21 @@ class Qwen2_VL:
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
-        for key in self.args.score_dict.keys():
-            score_file = f'{self.args.folder_path}importance_scores/{key}.npy'
-            if not os.path.exists(score_file):
-                with open(score_file, 'wb') as f:
-                    pickle.dump((1, self.args.score_dict[key]), f)
-            else:
-                with open(score_file, 'rb') as f:
-                    sample_num, curr_scores = pickle.load(f)
-                curr_scores += self.args.score_dict[key]
-                sample_num += 1
-                with open(score_file, 'wb') as f:
-                    pickle.dump((sample_num, curr_scores), f)
-                if sample_num in self.args.save_score_steps:
-                    with open(score_file.replace('.npy', f'_{sample_num}.npy'), 'wb') as f:
+        if self.args.mode == 1:
+            for key in self.args.score_dict.keys():
+                score_file = f'{self.args.folder_path}importance_scores/{key}.npy'
+                if not os.path.exists(score_file):
+                    with open(score_file, 'wb') as f:
+                        pickle.dump((1, self.args.score_dict[key]), f)
+                else:
+                    with open(score_file, 'rb') as f:
+                        sample_num, curr_scores = pickle.load(f)
+                    curr_scores += self.args.score_dict[key]
+                    sample_num += 1
+                    with open(score_file, 'wb') as f:
                         pickle.dump((sample_num, curr_scores), f)
+                    if sample_num in self.args.save_score_steps:
+                        with open(score_file.replace('.npy', f'_{sample_num}.npy'), 'wb') as f:
+                            pickle.dump((sample_num, curr_scores), f)
 
         return output_text[0]
