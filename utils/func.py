@@ -230,7 +230,6 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
 def select_modality_neurons_from_importance_scores(args):
-    # ["uniform", "adaptive", "LU-NA", "LA-NU", "random"]
     # compute weighted-sum-score
     scores = args.score_dict
     w_scores = args.weighted_score_dict
@@ -244,16 +243,30 @@ def select_modality_neurons_from_importance_scores(args):
         w_scores[modal] = torch.zeros(args.layer_num, args.hidden_size).to(args.device)
         for ind, key in enumerate(score_keys):
             w_scores[modal] += score_weights[ind] * scores[f'{modal}_{key}']
-    import pdb
-    pdb.set_trace()
 
-
-    # 然后选择
+    # ["uniform", "adaptive", "LU-NA", "LA-NU", "random"]
+    # select modality-specific neurons
     sel_type = args.selection
-    scores = args.score_dict
+    K = int(args.select_ratio * args.hidden_size)
     if sel_type == "adaptive":
+        sum_score = sum(w_scores.values())
+
+        # map max-val of one position to modal
+        max_values = torch.stack(list(w_scores.values()))
+        # 不同模态的比例有没有统计的价值？
+        max_values, max_indices = max_values.max(dim=0)
+        flat_max_indices = max_indices.flatten()
+
+        # find top-K indices / positions
+        topk_values, topk_indices = torch.topk(sum_score.flatten(), K)
+        topk_positions = torch.unravel_index(topk_indices, sum_score.shape)
+
+        # divide top-K neuron into different modals
+        topk_modals = flat_max_indices[topk_indices]
+
         import pdb
         pdb.set_trace()
+        a = 1
 
 def extract_digits(s):
     match = re.search(r'\d+', s)
@@ -265,8 +278,6 @@ def create_act_hook(layer_index, args):
     """
     hook for activation of mlp neurons in llm
     """
-    args.K = int(args.select_ratio * args.hidden_size)
-
     def activation_hook(module, input, output):
         if args.mode == 0:
             return output
