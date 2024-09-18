@@ -309,23 +309,13 @@ def handle_output(args, csv_line):
     """
     decide whether to print or write in csv
     """
-    if args.mode == 2:
+    if args.mode == 1:
         args.writer.writerow(csv_line)
         args.csv_file.flush()
     else:
         for key, value in csv_line.items():
             print(f'{key}: {value}')
         print("")
-
-def softmax(x):
-    """
-    softmax
-    """
-    z = x - max(x)
-    numerator = np.exp(z)
-    denominator = np.sum(numerator)
-    softmax = numerator/denominator
-    return softmax
 
 def format_subject(subject):
     """

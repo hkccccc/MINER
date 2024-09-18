@@ -18,11 +18,15 @@ class Qwen2_VL:
         model_path = "/home/ubuntu/models/Qwen2-VL-7B-Instruct"
 
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            model_path,
-            torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
-            device_map="auto",
+            model_path, torch_dtype="auto", device_map="auto"
         )
+
+        # self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+        #     model_path,
+        #     torch_dtype=torch.bfloat16,
+        #     attn_implementation="flash_attention_2",
+        #     device_map="auto",
+        # )
 
         # The default range for the number of visual tokens per image in the model is 4-16384.
         # You can set min_pixels and max_pixels according to your needs, such as a token range of 256-1280, to balance performance and cost.
@@ -111,12 +115,16 @@ class Qwen2_VL:
             score_file = f'{self.args.folder_path}importance_scores/{key}.npy'
             if not os.path.exists(score_file):
                 with open(score_file, 'wb') as f:
-                    pickle.dump(self.args.score_dict[key], f)
+                    pickle.dump((1, self.args.score_dict[key]), f)
             else:
                 with open(score_file, 'rb') as f:
-                    curr_scores = pickle.load(f)
+                    sample_num, curr_scores = pickle.load(f)
                 curr_scores += self.args.score_dict[key]
+                sample_num += 1
                 with open(score_file, 'wb') as f:
-                    pickle.dump(curr_scores, f)
+                    pickle.dump((sample_num, curr_scores), f)
+                if sample_num in self.args.save_score_steps:
+                    with open(score_file.replace('.npy', f'_{sample_num}.npy'), 'wb') as f:
+                        pickle.dump((sample_num, curr_scores), f)
 
         return output_text[0]

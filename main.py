@@ -2,7 +2,6 @@
 import os
 import json
 import argparse
-import pickle
 import sys
 import re
 import pandas as pd
@@ -54,6 +53,7 @@ def main():
     cmd += [f"--{key} {' '.join(map(str, value)) if isinstance(value, list) else value}" for key, value in args_dict.items() if value is not None]
     cmd_str = ' '.join(cmd)
     args.vqa_start_point = 0
+    args.save_score_steps = [10, 100, 1000, 5000, 10000]
 
     exp_name = '' if args.exp_name == '' else f'_{args.exp_name}'
     args.folder_path = f"outputs/{args.mllm}_{args.task}{exp_name}/"
@@ -79,14 +79,6 @@ def main():
                 sys.exit(0)
 
     evaluator = uf.TextEvaluation()
-
-    # load mask
-    # if args.mask_modal is not None:
-    #     p1, p2 = uf.split_mask_prefix(ALL_TASKS, args.mask)
-    #     mask_path = f'masks/{args.mllm}/{p1}/{p2}.pkl'
-    #     print(f'load mask from {mask_path} and apply mask of {args.mask_modal}')
-    #     with open(mask_path, 'rb') as f:
-    #         args.mask = pickle.load(f)
 
     # create mllm model
     if args.mllm == 'qwen2_vl':
@@ -189,19 +181,6 @@ def main():
 
             if args.mmlu_qa_index >= args.vqa_num:
                 break
-    # uf.get_mask(5000, args)
-    # # import pdb
-    # # pdb.set_trace()
-    # with open('mask.pkl', 'wb') as f:
-    #     pickle.dump(args.mask_dict, f)
-    # a = 1
-    # if args.mode == 2:
-    #     with open(f'masks/{args.mllm}/{args.task}/{args.vqa_num}_{args.select_ratio}.pkl', 'wb') as file:
-    #         pickle.dump(args.mask_dic, file)
-
-    # if args.save_output:
-    #     args.csv_file.close()
-    
 
 if __name__ == "__main__":
     main()
