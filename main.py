@@ -29,7 +29,7 @@ def main():
     # mode 1: create folder and save mask
     # mode 2: load and apply mask
 
-    parser.add_argument('--mask_modal', type=str, nargs='+', default=["text", "special", "all"], help="choose from ALL_MODALITIES[mllm] to mask")
+    parser.add_argument('--mask_modal', type=str, nargs='+', default=["text", "special", "all", "image", "spe_text"], help="choose from ALL_MODALITIES[mllm] to mask")
     # get mask: all possible modals
     # apply mask: subset of "all possible modals"
 

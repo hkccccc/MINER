@@ -229,6 +229,32 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     values = [prob_val, mean_val, max_val, torch.sum(attn_val_k, dim=0), torch.sum(attn_val_q, dim=0)]
     return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
+def select_modality_neurons_from_importance_scores(args):
+    # ["uniform", "adaptive", "LU-NA", "LA-NU", "random"]
+    # compute weighted-sum-score
+    scores = args.score_dict
+    w_scores = args.weighted_score_dict
+
+    score_weights = args.score_weights
+    score_keys = args.score_keys
+    assert len(score_weights) == len(score_keys)
+
+    modals = args.mask_modal # subset of all possible modals
+    for modal in modals:
+        w_scores[modal] = torch.zeros(args.layer_num, args.hidden_size).to(args.device)
+        for ind, key in enumerate(score_keys):
+            w_scores[modal] += score_weights[ind] * scores[f'{modal}_{key}']
+    import pdb
+    pdb.set_trace()
+
+
+    # 然后选择
+    sel_type = args.selection
+    scores = args.score_dict
+    if sel_type == "adaptive":
+        import pdb
+        pdb.set_trace()
+
 def extract_digits(s):
     match = re.search(r'\d+', s)
     if match:
@@ -246,8 +272,9 @@ def create_act_hook(layer_index, args):
             return output
         elif args.mode == 2:
             args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-
-            if args.score_dict['text_mean'].sum() == 0: # load score and get top-K neurons
+            # import pdb
+            # pdb.set_trace()
+            if len(args.weighted_score_dict) == 0: # load score and get top-K neurons
                 ts = '10' # args, 10, 100, None
                 score_path = Path(f'{args.folder_path}importance_scores/')
                 load_files = []
@@ -258,8 +285,12 @@ def create_act_hook(layer_index, args):
                         load_files.append(file)
                 for file in load_files:
                     with open(file, 'rb') as f:
-                        args.score_dict[file.stem] = pickle.load(f)[1]
+                        args.score_dict[file.stem.replace(f'_{ts}', '')] = pickle.load(f)[1]
+                
+                mask_ind = select_modality_neurons_from_importance_scores(args)
             else: # apply mask
+                import pdb
+                pdb.set_trace()
                 pass
 
         elif output.shape[:-1] == args.modal_mask['text'].shape:

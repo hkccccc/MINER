@@ -20,7 +20,7 @@ class Qwen2_VL:
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_path, torch_dtype="auto", device_map="auto"
         )
-
+        self.args.device = self.model.device
         # self.model = Qwen2VLForConditionalGeneration.from_pretrained(
         #     model_path,
         #     torch_dtype=torch.bfloat16,
@@ -52,15 +52,15 @@ class Qwen2_VL:
         for modal in self.args.mask_modal:
             for key in self.args.score_keys:
                 self.score_filenames.append(f'{modal}_{key}')
-        self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in self.score_filenames}
-
+        self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.args.device) for key in self.score_filenames}
+        self.args.weighted_score_dict = {}
 
     def infer(self, data):
         """
         inference on the given information
         """
         if self.args.mode == 1: # refresh the score_dict
-            self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in self.score_filenames}
+            self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.args.device) for key in self.score_filenames}
         
         prompt, img_path = data.get('text'), data.get('img')
         messages = [
@@ -83,7 +83,7 @@ class Qwen2_VL:
             padding=True,
             return_tensors="pt",
         )
-        inputs = inputs.to(next(self.model.parameters()).device)
+        inputs = inputs.to(self.args.device)
 
         # 151655: <|image_pad|>
         # 151644: <|im_start|>
