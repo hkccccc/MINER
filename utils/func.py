@@ -230,6 +230,9 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
 def select_modality_neurons_from_importance_scores(args):
+    """
+    select modality-specific neurons
+    """
     # compute weighted-sum-score
     scores = args.score_dict
     w_scores = args.weighted_score_dict
@@ -244,10 +247,10 @@ def select_modality_neurons_from_importance_scores(args):
         for ind, key in enumerate(score_keys):
             w_scores[modal] += score_weights[ind] * scores[f'{modal}_{key}']
 
-    # ["uniform", "adaptive", "LU-NA", "LA-NU", "random"]
     # select modality-specific neurons
     sel_type = args.selection
-    K = int(args.select_ratio * args.hidden_size)
+    K = int(args.select_ratio * args.hidden_size * args.layer_num) # 5304
+    modality_specific_neurons = {key: [] for key in modals}
     if sel_type == "adaptive":
         sum_score = sum(w_scores.values())
 
@@ -259,14 +262,26 @@ def select_modality_neurons_from_importance_scores(args):
 
         # find top-K indices / positions
         topk_values, topk_indices = torch.topk(sum_score.flatten(), K)
-        topk_positions = torch.unravel_index(topk_indices, sum_score.shape)
+        layer_lst, neuron_lst = torch.unravel_index(topk_indices, sum_score.shape)
+        pos_lst = list(zip(layer_lst.tolist(), neuron_lst.tolist()))
 
         # divide top-K neuron into different modals
-        topk_modals = flat_max_indices[topk_indices]
+        topk_modals = flat_max_indices[topk_indices].tolist()
+        for i, modal_ind in enumerate(topk_modals):
+            modality_specific_neurons[modals[modal_ind]].append(pos_lst[i])
 
-        import pdb
-        pdb.set_trace()
-        a = 1
+        for modal in modals:
+            modality_specific_neurons[modal] = sorted(modality_specific_neurons[modal], key=lambda x: (x[0], x[1]))
+    elif sel_type == "uniform":
+        K_per_modal_layer = int(K / (len(modals)*args.layer_num)) # 37
+        # 输入importance
+        pass
+    elif sel_type == "LU-NA":
+        pass
+    elif sel_type == "LA-NU":
+        pass
+    elif sel_type == "random":
+        pass
 
 def extract_digits(s):
     match = re.search(r'\d+', s)
