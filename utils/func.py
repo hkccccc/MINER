@@ -3,10 +3,12 @@ import random
 import os
 import csv
 import torch
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.nn.functional as F
+from pathlib import Path
 from pycocotools.coco import COCO
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
@@ -238,15 +240,33 @@ def create_act_hook(layer_index, args):
         elif args.mode == 2:
             # 只load一次，如果args.score_dict有东西则停止，load一版mask用于所有sample
             # args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-            # ts = 100
-            # score_path = f'{args.folder_path}importance_scores/'
+            ts = '100' # args, 10, 100, None
+            # ts = None
+            score_path = Path(f'{args.folder_path}importance_scores/')
+            import re
+            for file in score_path.rglob('*.npy'):
+                # if file.is_file() and ts in :  # 检查文件是否是 txt 文件
+                #     print(f"TXT 文件: {file}")
+                if ts is None and not bool(re.search(r'\d', str(file))):
+                    print(file)
+                if ts in str(file):
+                    print(file)
             # assert sum(args.score_weights) == 1
             # # load importance scores and compute weighted sum
-            
-            # for key in args.score_keys:
-
             import pdb
             pdb.set_trace()
+            # for key in args.score_keys:
+            if args.score_dict['text_mean'].sum() == 0:
+                with open('/home/ubuntu/kaichen/modality_specific/outputs/qwen2_vl_text_vqa/importance_scores/all_attn_k_10.npy', 'rb') as f:
+                    _, args.score_dict['text_mean'] = pickle.load(f)
+                # args.score_dict['text_mean'] = 
+                pass # load
+            else:
+                exit()
+                pass # apply
+
+            # import pdb
+            # pdb.set_trace()
             print(layer_index)
             pass # load and apply
 
