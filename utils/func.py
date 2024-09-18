@@ -223,9 +223,8 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     attn_q = F.softmax(attn_score, dim=1) # dim1, softmax on row / query
     attn_val_q = torch.matmul(attn_q, flat_tensor)
 
-    keys = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
     values = [prob_val, mean_val, max_val, torch.sum(attn_val_k, dim=0), torch.sum(attn_val_q, dim=0)]
-    return {key: min_max_normalize(value) for key, value in zip(keys, values)}
+    return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
 def create_act_hook(layer_index, args):
     """
@@ -237,20 +236,25 @@ def create_act_hook(layer_index, args):
         if args.mode == 0:
             return output
         elif args.mode == 2:
-            args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-            ts = 100
-            score_path = f'{args.folder_path}importance_scores/'
-            assert sum(args.score_weights) == 1
-            # load importance scores and compute weighted sum
+            # 只load一次，如果args.score_dict有东西则停止，load一版mask用于所有sample
+            # args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
+            # ts = 100
+            # score_path = f'{args.folder_path}importance_scores/'
+            # assert sum(args.score_weights) == 1
+            # # load importance scores and compute weighted sum
+            
+            # for key in args.score_keys:
+
             import pdb
             pdb.set_trace()
+            print(layer_index)
             pass # load and apply
 
-        if output.shape[:-1] == args.modal_mask['text'].shape:
+        elif output.shape[:-1] == args.modal_mask['text'].shape:
             for modal in args.mask_modal:
                 mask = args.modal_mask[modal]
                 dic_score = get_neuron_importance_scores_in_layer(output, mask, args)
-                for score_type in dic_score.keys():
+                for score_type in args.score_keys:
                     args.score_dict[f'{modal}_{score_type}'][layer_index] += dic_score[score_type] 
         
         return output

@@ -45,20 +45,22 @@ class Qwen2_VL:
 
             attn_hook = create_attn_hook(i, self.args)
             self.model.model.layers[i].self_attn.register_forward_hook(attn_hook)
+        
+        # use dict to store mask for all possible modals
+        self.args.score_keys = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
+        self.score_filenames = []
+        for modal in self.args.mask_modal:
+            for key in self.args.score_keys:
+                self.score_filenames.append(f'{modal}_{key}')
+        self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in self.score_filenames}
+
 
     def infer(self, data):
         """
         inference on the given information
         """
-        if self.args.mode == 1:
-            # use dict to store mask for all possible modals
-            score_types = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
-            # mask_modal depends on benchmark type
-            score_filenames = []
-            for modal in self.args.mask_modal:
-                for stype in score_types:
-                    score_filenames.append(f'{modal}_{stype}')
-            self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in score_filenames}
+        if self.args.mode == 1: # refresh the score_dict
+            self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.model.device) for key in self.score_filenames}
         
         prompt, img_path = data.get('text'), data.get('img')
         messages = [
