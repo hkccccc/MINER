@@ -5,12 +5,15 @@ import csv
 import torch
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from pycocotools.coco import COCO
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from .crop import crop
+
 
 class TextEvaluation:
     """
@@ -161,38 +164,6 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def resize_image(image_path, ratio=None, max_length=None):
-    """
-    resize img to certain size or ratio, save as xxx_cp.jpg
-    """
-    with Image.open(image_path) as img:
-        width, height = img.size
-
-        if width < 400 or height < 400:
-            print('image too tiny! stop!')
-            exit(-1)
-
-        if max_length is not None:
-            if width > height:
-                new_width = max_length
-                new_height = int((300 / width) * height)
-            else:
-                new_height = max_length
-                new_width = int((300 / height) * width)
-        elif ratio is not None:
-            new_width = int(width * ratio)
-            new_height = int(height * ratio)
-        else:
-            exit(-1)
-        resized_img = img.resize((new_width, new_height), Image.ANTIALIAS)
-
-        if not is_cp_suffix(image_path):
-            new_img_path = append_suffix_to_filename(image_path)
-        else:
-            new_img_path = image_path
-        resized_img.save(new_img_path)
-        return new_img_path
-
 def get_top_acts(arr, ratio=0.01):
     """
     select the top x% neurons with highest activation frequency
@@ -271,43 +242,6 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     sum_val = sum(min_max_normalize(val) * weight for val, weight in zip(val_lst, args.score_weights))
     return torch.sum(sum_val, dim=0)
 
-# def process_tensor(old_tensor, mask, args, layer_index):
-#     """
-#     mask top-K important neurons
-#     """
-#     tensor = old_tensor.clone()[mask, :]
-#     ori_shape = tensor.shape
-#     flat_tensor = tensor.view(-1, ori_shape[-1])
-
-#     if args.neuron_type == 'random':
-#         top_k_indices = torch.randperm(ori_shape[-1])[:args.K]
-#     else:
-#         # max_val
-#         max_val, _ = torch.max(flat_tensor, dim=0)
-#         max_val = min_max_normalize(max_val)
-
-#         if args.neuron_type == 'sample_specific':
-#             mean_val = torch.mean(flat_tensor, dim=0)
-#         elif args.neuron_type in ['token_specific', 'token_group']:
-#             mask = mask.squeeze(0)
-#             attn_score = args.attn_score.squeeze(0)
-#             attn_score = attn_score[mask, :][:, mask]
-
-#             # attn_score = torch.softmax(attn_score, dim=1) # softmax后好像性能下降？
-#             # import pdb
-#             # pdb.set_trace()
-#             # mean_val = torch.matmul(attn_score.T, flat_tensor) # 按照query对所有key的attn求加权和
-#             mean_val = torch.matmul(attn_score, flat_tensor) # 按照所有query对某个key的attn求加权和
-#         else:
-#             raise ValueError("Unsupported neuron type.")
-            
-#         mean_val = min_max_normalize(mean_val)
-#         importance = args.beta * mean_val + (1 - args.beta) * max_val
-#         _, top_k_indices = torch.topk(importance, k=args.K)
-#         if args.neuron_type == 'token_group':
-#             top_k_indices, num = count_top_k_frequent_val(top_k_indices, args.K)
-#     return top_k_indices
-
 def create_act_hook(layer_index, args):
     """
     hook for activation of mlp neurons in llm
@@ -320,7 +254,6 @@ def create_act_hook(layer_index, args):
             return output
 
         args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-
 
         # generate or load importance matrix
         if output.shape[:-1] == args.modal_mask['text'].shape:
@@ -340,11 +273,6 @@ def create_act_hook(layer_index, args):
         return output
     return activation_hook
 
-import numpy as np
-import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 def save_attn_matrix(attention_matrix, name, args):
     attention_matrix = attention_matrix.to(torch.float32).squeeze(0).cpu().numpy()
     # token_names = [i for i in range(len(attention_matrix[-1]))]
@@ -356,7 +284,6 @@ def save_attn_matrix(attention_matrix, name, args):
     plt.xlabel("Tokens (Key)")
     plt.ylabel("Tokens (Query)")
     plt.savefig(name, dpi=300, bbox_inches='tight')
-
 
 def create_attn_hook(layer_index, args):
     """

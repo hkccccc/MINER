@@ -56,27 +56,27 @@ def main():
     args.vqa_start_point = 0
 
     exp_name = '' if args.exp_name == '' else f'_{args.exp_name}'
-    args.folder_path = f"outputs/{args.mllm}/{args.task}/N{args.vqa_num}_r{args.select_ratio}_dval{args.deact_val}_{'_'.join(args.mask_modal)}{exp_name}/"
-    if args.mode == 2 and not os.path.exists(args.folder_path): 
-        # create: mask folder, out.txt, run.sh, origin.csv
-        os.makedirs(args.folder_path)
-        with open(args.folder_path + 'run.sh', mode='w', encoding='utf-8') as f:
-            f.write(cmd_str)
-        sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
-        uf.initialize_csv('origin.csv', args)
-    
-    elif args.mode == 2:
-        # check whether need to resume
-        sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
-        df = pd.read_csv(args.folder_path + 'origin.csv')
-        if df['index'].iloc[-1] != args.vqa_num - 1:
-            # 继续跑origin.csv，记得更新mask，resume
-            args.vqa_start_point = df['index'].iloc[-1] + 1
-            args.mmlu_resume_args = (df["dataset name"].iloc[-1], df["sub-index"].iloc[-1])
+    args.folder_path = f"outputs/{args.mllm}_{args.task}{exp_name}/"
+    if args.mode == 1:
+        if not os.path.exists(args.folder_path):
+            os.makedirs(args.folder_path)
+            os.makedirs(args.folder_path + 'importance_scores')
+            with open(args.folder_path + 'run.sh', mode='w', encoding='utf-8') as f:
+                f.write(cmd_str)
+            sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
             uf.initialize_csv('origin.csv', args)
         else:
-            print("Condition met, exiting the program...")
-            sys.exit(0)
+            # check whether need to resume
+            sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
+            df = pd.read_csv(args.folder_path + 'origin.csv')
+            if df['index'].iloc[-1] != args.vqa_num - 1:
+                # 继续跑origin.csv，记得更新mask，resume
+                args.vqa_start_point = df['index'].iloc[-1] + 1
+                args.mmlu_resume_args = (df["dataset name"].iloc[-1], df["sub-index"].iloc[-1])
+                uf.initialize_csv('origin.csv', args)
+            else:
+                print("Condition met, exiting the program...")
+                sys.exit(0)
 
     evaluator = uf.TextEvaluation()
 
