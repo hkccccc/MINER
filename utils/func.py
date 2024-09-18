@@ -4,6 +4,7 @@ import os
 import csv
 import torch
 import pickle
+import re
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -228,6 +229,12 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     values = [prob_val, mean_val, max_val, torch.sum(attn_val_k, dim=0), torch.sum(attn_val_q, dim=0)]
     return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
+def extract_digits(s):
+    match = re.search(r'\d+', s)
+    if match:
+        return match.group(0)
+    return False
+
 def create_act_hook(layer_index, args):
     """
     hook for activation of mlp neurons in llm
@@ -238,37 +245,22 @@ def create_act_hook(layer_index, args):
         if args.mode == 0:
             return output
         elif args.mode == 2:
-            # 只load一次，如果args.score_dict有东西则停止，load一版mask用于所有sample
-            # args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-            ts = '100' # args, 10, 100, None
-            # ts = None
-            score_path = Path(f'{args.folder_path}importance_scores/')
-            import re
-            for file in score_path.rglob('*.npy'):
-                # if file.is_file() and ts in :  # 检查文件是否是 txt 文件
-                #     print(f"TXT 文件: {file}")
-                if ts is None and not bool(re.search(r'\d', str(file))):
-                    print(file)
-                if ts in str(file):
-                    print(file)
-            # assert sum(args.score_weights) == 1
-            # # load importance scores and compute weighted sum
-            import pdb
-            pdb.set_trace()
-            # for key in args.score_keys:
-            if args.score_dict['text_mean'].sum() == 0:
-                with open('/home/ubuntu/kaichen/modality_specific/outputs/qwen2_vl_text_vqa/importance_scores/all_attn_k_10.npy', 'rb') as f:
-                    _, args.score_dict['text_mean'] = pickle.load(f)
-                # args.score_dict['text_mean'] = 
-                pass # load
-            else:
-                exit()
-                pass # apply
+            args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
 
-            # import pdb
-            # pdb.set_trace()
-            print(layer_index)
-            pass # load and apply
+            if args.score_dict['text_mean'].sum() == 0: # load score and get top-K neurons
+                ts = '10' # args, 10, 100, None
+                score_path = Path(f'{args.folder_path}importance_scores/')
+                load_files = []
+                for file in score_path.rglob('*.npy'):
+                    if ts is None and not extract_digits(str(file.name)):
+                        load_files.append(file)
+                    elif extract_digits(str(file.name)) == ts:
+                        load_files.append(file)
+                for file in load_files:
+                    with open(file, 'rb') as f:
+                        args.score_dict[file.stem] = pickle.load(f)[1]
+            else: # apply mask
+                pass
 
         elif output.shape[:-1] == args.modal_mask['text'].shape:
             for modal in args.mask_modal:
