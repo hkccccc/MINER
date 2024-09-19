@@ -184,24 +184,6 @@ def min_max_normalize(tensor):
     max_val = torch.max(tensor)
     return (tensor - min_val) / (max_val - min_val)
 
-def count_top_k_frequent_val(tensor, K):
-    """
-    Count the occurrence frequency of neurons corresponding to different tokens.
-    """
-    flat_tensor = tensor.view(-1)
-    max_value = flat_tensor.max().item() + 1
-    counts = torch.bincount(flat_tensor, minlength=max_value)
-    sorted_indices = torch.argsort(counts, descending=True)
-    top_k_indices = sorted_indices[:K]
-    top_k_counts = counts[top_k_indices]
-    ind, num = [], []
-    for i, idx in enumerate(top_k_indices):
-        ind.append(idx.item())
-        num.append(top_k_counts[i].item())
-
-    return torch.tensor(ind), torch.tensor(num)
-
-
 def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     """
     get sumed importance score of each neuron in one layer
@@ -229,6 +211,103 @@ def get_neuron_importance_scores_in_layer(old_tensor, mask, args):
     values = [prob_val, mean_val, max_val, torch.sum(attn_val_k, dim=0), torch.sum(attn_val_q, dim=0)]
     return {key: min_max_normalize(value) for key, value in zip(args.score_keys, values)}
 
+
+def fill_tuple(template, value_tuple):
+    """
+    填充模板中的 -1 位置，生成新的 tuple。
+    """
+    template_list = list(template)
+    value_iter = iter(value_tuple)
+    for i, val in enumerate(template_list):
+        if val == -1:
+            template_list[i] = next(value_iter)
+    return tuple(template_list)
+
+def top_k_pos(matrix, template, K, K2=None):
+    """
+    Helper function to get the top K (modality, layer, neuron) tuples from a 3D matrix.
+    """
+    # Flatten the matrix and get the indices of the top K values
+    flat_matrix = matrix.flatten()
+    vals = None
+    ret_dic = {}
+    if K2 is not None:
+        flat_indices = torch.topk(flat_matrix, K2).indices[K:]
+        vals = torch.topk(flat_matrix, K2).values[K:]
+    else:
+        flat_indices = torch.topk(flat_matrix, K).indices
+        vals = torch.topk(flat_matrix, K).values
+    # Convert the flat indices to 3D indices (modality, layer, neuron)
+    ret = list(zip(*torch.unravel_index(flat_indices, matrix.shape)))
+    int_list = [fill_tuple(template, tuple(tensor.item() for tensor in tup)) for tup in ret]
+    vals = vals.tolist()
+    assert len(int_list) == len(vals)
+    for i, val in enumerate(vals):
+        ret_dic[val] = int_list[i]
+    return ret_dic
+
+def select_k_neurons(matrix, modals, K, mode):
+    """
+    select k neurons from importance matric [M,L,N]
+    """
+    M, L, N = matrix.shape
+    base_dic = {}
+    remain_dic = {}
+    if mode == "adaptive":
+        # Select top K from the entire MLN matrix as a 1D vector.
+        K1 = K // 1
+        remain_K = K - K1 * 1
+        base_dic.update(top_k_pos(matrix, (-1, -1, -1), K))
+        remain_dic.update(top_k_pos(matrix, (-1, -1, -1), K1, K1+1))
+
+    elif mode == "layer_uniform":
+        # Split along layers, select top K/L per layer.
+        K1 = K // L
+        remain_K = K - K1 * L
+        for l in range(L):
+            sub_matrix = matrix[:, l, :]
+            base_dic.update(top_k_pos(sub_matrix, (-1, l, -1), K1))
+            remain_dic.update(top_k_pos(sub_matrix, (-1, l, -1), K1, K1+1))
+
+    elif mode == "modal_uniform":
+        # Split along modalities, select top K/M per modality.
+        K1 = K // M
+        remain_K = K - K1 * M
+        for m in range(M):
+            sub_matrix = matrix[m, :, :]
+            base_dic.update(top_k_pos(sub_matrix, (m, -1, -1), K1))
+            remain_dic.update(top_k_pos(sub_matrix, (m, -1, -1), K1, K1+1))
+        
+    elif mode == "uniform":
+        # Uniform: Split into ML parts, select top K/ML from each.
+        K1 = K // (M * L)
+        remain_K = K - K1 * M * L
+        for m in range(M):
+            for l in range(L):
+                sub_matrix = matrix[m, l, :]
+                base_dic.update(top_k_pos(sub_matrix, (m, l, -1), K1))
+                remain_dic.update(top_k_pos(sub_matrix, (m, l, -1), K1, K1+1))
+        
+    elif mode == "random":
+        total_elements = matrix.numel()
+        flat_tensor = matrix.flatten()
+        random_indices = torch.randperm(total_elements)[:K]
+        values = flat_tensor[random_indices]
+        pos = torch.unravel_index(random_indices, matrix.shape)
+        pos = list(zip(*pos))
+        pos = [tuple(tensor.item() for tensor in tup) for tup in pos]
+        base_dic = dict(zip(values.tolist(), pos))
+    
+    if mode != "random":
+        r_keys = sorted(remain_dic, key=remain_dic.get, reverse=True)[:remain_K]
+        base_dic.update({key: remain_dic[key] for key in r_keys})
+
+    modal_dic = {modal: [] for modal in modals}
+    for value in base_dic.values():
+        modality_idx = value[0]
+        modal_dic[modals[modality_idx]].append(value[1:])
+    return base_dic, modal_dic
+
 def select_modality_neurons_from_importance_scores(args):
     """
     select modality-specific neurons
@@ -250,38 +329,12 @@ def select_modality_neurons_from_importance_scores(args):
     # select modality-specific neurons
     sel_type = args.selection
     K = int(args.select_ratio * args.hidden_size * args.layer_num) # 5304
-    modality_specific_neurons = {key: [] for key in modals}
-    if sel_type == "adaptive":
-        sum_score = sum(w_scores.values())
+    all_scores = []
+    for modal in modals:
+        all_scores.append(w_scores[modal])
+    all_scores = torch.stack(all_scores, dim=0)
+    ret = select_k_neurons(all_scores, modals, K, sel_type)
 
-        # map max-val of one position to modal
-        max_values = torch.stack(list(w_scores.values()))
-        # 不同模态的比例有没有统计的价值？
-        max_values, max_indices = max_values.max(dim=0)
-        flat_max_indices = max_indices.flatten()
-
-        # find top-K indices / positions
-        topk_values, topk_indices = torch.topk(sum_score.flatten(), K)
-        layer_lst, neuron_lst = torch.unravel_index(topk_indices, sum_score.shape)
-        pos_lst = list(zip(layer_lst.tolist(), neuron_lst.tolist()))
-
-        # divide top-K neuron into different modals
-        topk_modals = flat_max_indices[topk_indices].tolist()
-        for i, modal_ind in enumerate(topk_modals):
-            modality_specific_neurons[modals[modal_ind]].append(pos_lst[i])
-
-        for modal in modals:
-            modality_specific_neurons[modal] = sorted(modality_specific_neurons[modal], key=lambda x: (x[0], x[1]))
-    elif sel_type == "uniform":
-        K_per_modal_layer = int(K / (len(modals)*args.layer_num)) # 37
-        # 输入importance
-        pass
-    elif sel_type == "LU-NA":
-        pass
-    elif sel_type == "LA-NU":
-        pass
-    elif sel_type == "random":
-        pass
 
 def extract_digits(s):
     match = re.search(r'\d+', s)
