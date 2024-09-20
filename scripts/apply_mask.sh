@@ -54,3 +54,8 @@ python /mnt/kaichen/modality_specific/main.py --mode 2 --selection uniform --mod
 
 
 python /mnt/kaichen/modality_specific/main.py --mode 2 --selection layer_uniform --modality_mode 2 --select_to_mask text special image --gpu 6 --select_ratio 0.015
+
+
+python main.py --dataset coco_caption --mode 1 --sample_num -1 --gpu 0
+python main.py --dataset text_vqa --mode 1 --sample_num -1 --gpu 1
+python main.py --dataset mmlu --mode 1 --sample_num -1 --gpu 2

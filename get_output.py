@@ -80,6 +80,7 @@ def check_masks(file_str=None):
         print("")
 
 # get_outputs(["layer_uniform"])
+get_outputs()
 # get_outputs(['r0.01_'])
-check_masks(['r0.01_'])
+# check_masks(['r0.01_'])
 
