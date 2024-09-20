@@ -9,9 +9,13 @@ import pandas as pd
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ALL_MODALITIES = {
-    'qwen2_vl': ["text", "special", "spe_text", "image", "video", "all"]
+    'qwen2_vl': {
+        'text_vqa': ["text", "special", "spe_text", "image", "all"],
+        'coco_caption': ["text", "special", "spe_text", "image", "all"],
+        'mmlu': ["text", "special", "all"]
+    }
 }
-SELECTION_TYPES = ["uniform", "adaptive", "LU-NA", "LA-NU", "random"]
+SELECTION_TYPES = ["uniform", "adaptive", "LA_MU", "LU_MA"]
 ALL_TASKS = ["test", "text_vqa", "coco_caption", "mmlu"]
 
 def main():
@@ -20,27 +24,31 @@ def main():
     """
     parser = argparse.ArgumentParser(description="A simple example script to demonstrate argparse.")    
     parser.add_argument('--mllm', type=str, default='qwen2_vl', choices=["qwen2_vl", "one_llm"], help="the mllm to be analyzed")
-    parser.add_argument('--task', type=str, default='test', choices=ALL_TASKS, help="type of qa datasets")
+    parser.add_argument('--task', type=str, default='text_vqa', choices=ALL_TASKS, help="type of qa datasets")
     parser.add_argument('--gpu', type=str, default='0', help="gpu_id")
 
     parser.add_argument('--exp_name', type=str, default='')
-    parser.add_argument('--mode', type=int, choices=[0,1,2], default=0)
+    parser.add_argument('--mode', type=int, choices=[0,1,2], default=2)
     # mode 0: infer normally
     # mode 1: create folder and save mask
     # mode 2: load and apply mask
 
-    parser.add_argument('--mask_modal', type=str, nargs='+', default=["text", "special", "all", "image", "spe_text"], help="choose from ALL_MODALITIES[mllm] to mask")
-    # get mask: all possible modals
-    # apply mask: subset of "all possible modals"
-
     # importance matrix
-    parser.add_argument('--vqa_num', type=int, default=-1, help="number of vqa questions, -1 means all questions")
-    parser.add_argument('--score_weights', type=float, nargs='+', default=[0,0.5,0.3,0.1,0.1], help="weights of [prob,mean,max,attn_k,attn_q], sum=1")
-    # apply mask
-    parser.add_argument('--deact_val', type=float, default=0, help="output value of a deactivated neuron, -1 means output.min()")
+    parser.add_argument('--vqa_num', type=int, default=200, help="number of vqa questions, -1 means all questions")
+    # get mask
+    parser.add_argument('--ts', type=int, default=-1, help="timestep of importance matrix, -1 means last ts")
+    parser.add_argument('--modality_mode', type=int, choices=[0,1,2,3], default=1, help="three types of mode")
+    # mode 0: ['all']
+    # mode 1: ['spe_text', ...]
+    # mode 2: ['special', 'text', ...]
+    # mode 3: ['random']
     parser.add_argument('--select_ratio', type=float, default=0.01, help="the ratio of selected neurons")
-    parser.add_argument('--selection', type=str, choices=SELECTION_TYPES, default="uniform")
-
+    parser.add_argument('--score_weights', type=float, nargs='+', default=[0,0.5,0.5,0,0], help="weights of [prob,mean,max,attn_k,attn_q], sum=1")
+    parser.add_argument('--selection', type=str, choices=SELECTION_TYPES, default="layer_uniform")
+    # apply mask
+    parser.add_argument('--select_to_mask', type=str, nargs='+', default=None, help="select modals to mask")
+    parser.add_argument('--deact_val', type=float, default=0, help="output value of a deactivated neuron, -1 means output.min()")
+    
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
@@ -57,25 +65,59 @@ def main():
     cmd_str = ' '.join(cmd)
     args.vqa_start_point = 0
     args.save_score_steps = [10, 100, 1000, 5000, 10000]
+    
+    all_modal = ALL_MODALITIES[args.mllm][args.task]
+    modality_mode_map = {
+        0: ['all'],
+        1: [item for item in all_modal if item not in ['all', 'special', 'text']], # not for mmlu
+        2: [item for item in all_modal if item not in ['all', 'spe_text']],
+        3: ['random']
+    }
+    if args.mode == 1:
+        args.mask_modal = all_modal
+    elif args.mode == 2:
+        args.mask_modal = modality_mode_map[args.modality_mode]
+    
+        # select_to_mask should be subset of mask_modal
+        if args.select_to_mask is None:
+            args.select_to_mask = args.mask_modal
+        elif not set(args.select_to_mask).issubset(args.mask_modal):
+            print("unsupported select_to_mask value...", f'{args.select_to_mask} not in {args.mask_modal}')
+            sys.exit(0)
+        else:
+            args.select_to_mask = sorted(args.select_to_mask, key=lambda x: args.mask_modal.index(x))
 
     exp_name = '' if args.exp_name == '' else f'_{args.exp_name}'
-    args.folder_path = f"outputs/{args.mllm}_{args.task}{exp_name}/"
-    if args.mode == 1:
+    
+    args.folder_path = f"outputs/{args.mllm}_{args.task}{exp_name}"
+    csv_name = 'origin'
+    if args.mode == 2:
+        args.folder_path += f'/ts{args.ts}_mode{args.modality_mode}_r{args.select_ratio}_w{"_".join(map(str, args.score_weights))}_{args.selection}'
+        csv_name = f'deact{args.deact_val}_mask_{"_".join(args.select_to_mask)}'
+    
+    if args.mode != 0:
         if not os.path.exists(args.folder_path):
             os.makedirs(args.folder_path)
-            os.makedirs(args.folder_path + 'importance_scores')
-            with open(args.folder_path + 'run.sh', mode='w', encoding='utf-8') as f:
-                f.write(cmd_str)
-            sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
-            uf.initialize_csv('origin.csv', args)
+            if args.mode == 1:
+                os.makedirs(args.folder_path + 'importance_scores')
+                with open(args.folder_path + '/run.sh', mode='w', encoding='utf-8') as f:
+                    f.write(cmd_str)
+                sys.stdout = open(args.folder_path + '/out.txt', 'a', encoding='utf-8')
+            uf.initialize_csv(f'/{csv_name}.csv', args)
+        
+        elif args.mode == 2 and not os.path.exists(args.folder_path + f'/{csv_name}.csv'): # other deact_val
+            uf.initialize_csv(f'/{csv_name}.csv', args)
+        
         else:
             # check whether need to resume
-            sys.stdout = open(args.folder_path + 'out.txt', 'a', encoding='utf-8')
-            df = pd.read_csv(args.folder_path + 'origin.csv')
+            if args.mode == 1:
+                sys.stdout = open(args.folder_path + '/out.txt', 'a', encoding='utf-8')
+            df = pd.read_csv(args.folder_path + f'/{csv_name}.csv')
+
             if df['index'].iloc[-1] != args.vqa_num - 1:
                 args.vqa_start_point = df['index'].iloc[-1] + 1
                 args.mmlu_resume_args = (df["dataset name"].iloc[-1], df["sub-index"].iloc[-1])
-                uf.initialize_csv('origin.csv', args)
+                uf.initialize_csv(f'/{csv_name}.csv', args)
             else:
                 print("Condition met, exiting the program...")
                 sys.exit(0)
@@ -107,7 +149,7 @@ def main():
         print(response)
 
     elif args.task == 'text_vqa':
-        text_vqa_path = "/home/ubuntu/kaichen/data/TextVQA"
+        text_vqa_path = "/mnt/kaichen/data/TextVQA"
         with open(f"{text_vqa_path}/val/TextVQA_0.5.1_val.json", "r", encoding='utf-8') as f:
             text_vqa = json.load(f)['data']
 
@@ -147,7 +189,7 @@ def main():
             uf.handle_output(args, csv_line)
     
     elif args.task == 'mmlu':
-        data_dir = '/home/ubuntu/kaichen/data/mmlu_data'
+        data_dir = '/mnt/kaichen/data/mmlu_data'
         subjects = sorted([f.split("_test.csv")[0] for f in os.listdir(os.path.join(data_dir, "test")) if "_test.csv" in f])
 
         total_qestions = 0

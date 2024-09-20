@@ -21,8 +21,8 @@ class TextEvaluation:
     """
     evaluation between predicted sentence and ground truth sentences
     """
-    def __init__(self, model_name='paraphrase-MiniLM-L6-v2', clip_model_name='openai/clip-vit-base-patch32'):
-        self.sbert_model = SentenceTransformer(model_name)
+    def __init__(self):
+        self.sbert_model = SentenceTransformer('/mnt/kaichen/data/paraphrase-MiniLM-L6-v2')
 
     def calculate_bleu(self, input_sentence, reference_sentences):
         """
@@ -130,10 +130,10 @@ def karpathy_coco_test():
     """
     generate karpathy coco testset, 5000 images with multiple captions in total
     """
-    coco = COCO('/home/ubuntu/datasets/coco/annotations_trainval2014/captions_val2014.json')
-    root_img_path = '/home/ubuntu/datasets/coco/val2014/'
+    coco = COCO('/mnt/kaichen/data/coco/annotations_trainval2014/captions_val2014.json')
+    root_img_path = '/mnt/kaichen/data/coco/val2014/'
     old_imgIds = coco.getImgIds()
-    with open('/home/ubuntu/datasets/coco/karparthy_split2014/coco_test.txt', 'r', encoding='utf-8') as f:
+    with open('/mnt/kaichen/data/coco/karparthy_split2014/coco_test.txt', 'r', encoding='utf-8') as f:
         kar_test = [line.strip() for line in f]
 
     imgIds = []
@@ -308,38 +308,107 @@ def select_k_neurons(matrix, modals, K, mode):
         modal_dic[modals[modality_idx]].append(value[1:])
     return base_dic, modal_dic
 
+def find_topK_values(data_dict, K): # no overlap
+    ret = {key: [] for key in data_dict.keys()}
+    
+    combined_tensor = sum(data_dict.values())
+    _, topk_indices = torch.topk(combined_tensor.flatten(), K)
+    
+    indices_2d = [torch.div(index, combined_tensor.shape[1], rounding_mode='floor').item() for index in topk_indices], \
+                 [index % combined_tensor.shape[1] for index in topk_indices]
+        
+    for i in range(K):
+        row, col = indices_2d[0][i], indices_2d[1][i]
+        max_tensor_name = None
+        max_value = float('-inf')
+        
+        for name, tensor in data_dict.items():
+            if tensor[row, col] > max_value:
+                max_value = tensor[row, col]
+                max_tensor_name = name
+        ret[max_tensor_name].append((int(row), int(col)))
+    return ret
+
 def select_modality_neurons_from_importance_scores(args):
     """
     select modality-specific neurons
     """
-    # compute weighted-sum-score
-    scores = args.score_dict
-    w_scores = args.weighted_score_dict
+    if not os.path.exists(args.mask_path):
+        # compute weighted-sum-score
+        scores = args.score_dict
+        w_scores = {}
 
-    score_weights = args.score_weights
-    score_keys = args.score_keys
-    assert len(score_weights) == len(score_keys)
+        score_weights = args.score_weights
+        score_keys = args.score_keys
+        assert len(score_weights) == len(score_keys)
 
-    modals = args.mask_modal # subset of all possible modals
-    for modal in modals:
-        w_scores[modal] = torch.zeros(args.layer_num, args.hidden_size).to(args.device)
-        for ind, key in enumerate(score_keys):
-            w_scores[modal] += score_weights[ind] * scores[f'{modal}_{key}']
+        for modal in args.mask_modal:
+            w_scores[modal] = torch.zeros(args.layer_num, args.hidden_size).to(args.device)
+            for ind, key in enumerate(score_keys):
+                w_scores[modal] += score_weights[ind] * scores[f'{modal}_{key}']
+        # save weighted-sum-score
+        with open(args.w_scores_path, 'wb') as f:
+            pickle.dump(w_scores, f)
+        
+        # generate mask
+        K = int(args.select_ratio * args.hidden_size * args.layer_num) # 5304
+        L, N = args.layer_num, args.hidden_size
+        if args.modality_mode == 3: # random
+            k_inds = {"random": [(random.randint(0, L - 1), random.randint(0, N - 1)) for _ in range(K)]}
+        else:
+            for _, value in w_scores.items():
+                assert torch.sum(value) != 0
+            if args.selection == "adaptive":
+                k_inds = find_topK_values(w_scores, K) # {'text':(L,N), ...}
+                
+            if args.selection == "LA_MU": # maybe overlap
+                k_inds = {}
+                k_split = K // len(w_scores)
+                for modal, modal_scores in w_scores.items():
+                    sub_dict = {modal: modal_scores}
+                    k_inds.update(find_topK_values(sub_dict, k_split)) # {'text':(L,N)}
+                    
+            if args.selection == "LU_MA": # maybe overlap
+                k_split = K // args.layer_num
+                keys = list(w_scores.keys())
+                Map = {i: keys[i] for i in range(len(keys))}
+                k_inds = {key: [] for key in keys}
+                           
+                for layer in range(args.layer_num):
+                    multimodal_single_layer = []
+                    for modal, modal_scores in w_scores.items():
+                        multimodal_single_layer.append(modal_scores[layer])
+                    sub_dict = {'-': torch.stack(multimodal_single_layer)}
+                    ret = find_topK_values(sub_dict, k_split)['-']
+                    
+                    for tuple in ret:
+                        modal_ind, neuron_ind = tuple
+                        k_inds[Map[modal_ind]].append((layer, neuron_ind))
+                        
+            if args.selection == "uniform": # best, maybe overlap
+                k_inds = {m: [] for m in w_scores.keys()}
+                k_split = K // (len(w_scores) * args.layer_num)
+                for layer in range(args.layer_num):
+                    zero_matrix = torch.zeros(args.layer_num, args.hidden_size).to(args.device)
+                    for modal, modal_scores in w_scores.items():
+                        w_score_layer = modal_scores[layer]
+                        zero_matrix[layer] = w_score_layer
+                        top_k_values = find_topK_values({modal: zero_matrix}, k_split)[modal] # {'text':(L,N)}
+                        k_inds[modal].extend(top_k_values)
 
-    # select modality-specific neurons
-    sel_type = args.selection
-    K = int(args.select_ratio * args.hidden_size * args.layer_num) # 5304
-    all_scores = []
-    for modal in modals:
-        all_scores.append(w_scores[modal])
-    all_scores = torch.stack(all_scores, dim=0)
-    ret = select_k_neurons(all_scores, modals, K, sel_type)
-
+        # save mask
+        with open(args.mask_path, 'wb') as f:
+            pickle.dump(k_inds, f)
+    else:
+        with open(args.mask_path, 'rb') as f:
+            k_inds = pickle.load(f)
+                
+    return k_inds
 
 def extract_digits(s):
     match = re.search(r'\d+', s)
     if match:
-        return match.group(0)
+        return int(match.group(0))
     return False
 
 def create_act_hook(layer_index, args):
@@ -349,28 +418,37 @@ def create_act_hook(layer_index, args):
     def activation_hook(module, input, output):
         if args.mode == 0:
             return output
+        
         elif args.mode == 2:
+            # return output
             args.deact_val = output.min() if args.deact_val == -1 else args.deact_val
-            # import pdb
-            # pdb.set_trace()
-            if len(args.weighted_score_dict) == 0: # load score and get top-K neurons
-                ts = '10' # args, 10, 100, None
-                score_path = Path(f'{args.folder_path}importance_scores/')
+            args.w_scores_path = args.folder_path + '/weighted_score.npy'
+            args.mask_path = args.folder_path + '/mask.npy'
+
+            if not os.path.exists(args.mask_path): # load score and get top-K 
+                score_path = Path(args.folder_path).parent / 'importance_scores/'
                 load_files = []
                 for file in score_path.rglob('*.npy'):
-                    if ts is None and not extract_digits(str(file.name)):
+                    if args.ts == -1 and not extract_digits(str(file.name)):
                         load_files.append(file)
-                    elif extract_digits(str(file.name)) == ts:
+                    elif extract_digits(str(file.name)) == args.ts:
                         load_files.append(file)
+
                 for file in load_files:
                     with open(file, 'rb') as f:
-                        args.score_dict[file.stem.replace(f'_{ts}', '')] = pickle.load(f)[1]
-                
-                mask_ind = select_modality_neurons_from_importance_scores(args)
-            else: # apply mask
-                import pdb
-                pdb.set_trace()
-                pass
+                        args.score_dict[file.stem.replace(f'_{args.ts}', '')] = pickle.load(f)[1]
+
+            k_inds = select_modality_neurons_from_importance_scores(args)
+
+            if len(k_inds) == 1:
+                inds = next(iter(k_inds.values()))
+                inds = [t[1] for t in inds if t[0] == layer_index]
+                output[..., inds] = args.deact_val
+            else:
+                for modal in args.select_to_mask:
+                    inds = k_inds[modal]
+                    inds = [t[1] for t in inds if t[0] == layer_index]
+                    output[..., inds] = args.deact_val
 
         elif output.shape[:-1] == args.modal_mask['text'].shape:
             for modal in args.mask_modal:
@@ -427,7 +505,7 @@ def handle_output(args, csv_line):
     """
     decide whether to print or write in csv
     """
-    if args.mode == 1:
+    if args.mode != 0:
         args.writer.writerow(csv_line)
         args.csv_file.flush()
     else:

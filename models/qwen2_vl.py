@@ -6,7 +6,8 @@ import numpy as np
 from qwen_vl_utils import process_vision_info
 # from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from utils.func import create_act_hook, create_attn_hook
-
+# import sys
+# sys.path.append('/mnt/kaichen/modality_specific/models/')
 from .local_packages.transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 
 class Qwen2_VL:
@@ -15,7 +16,7 @@ class Qwen2_VL:
     """
     def __init__(self, args):
         self.args = args
-        model_path = "/home/ubuntu/models/Qwen2-VL-7B-Instruct"
+        model_path = "/mnt/kaichen/data/Qwen2-VL-7B-Instruct"
 
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_path, torch_dtype="auto", device_map="auto"
@@ -53,7 +54,6 @@ class Qwen2_VL:
             for key in self.args.score_keys:
                 self.score_filenames.append(f'{modal}_{key}')
         self.args.score_dict = {key: torch.zeros(self.args.layer_num, self.args.hidden_size).to(self.args.device) for key in self.score_filenames}
-        self.args.weighted_score_dict = {}
 
     def infer(self, data):
         """
@@ -116,7 +116,7 @@ class Qwen2_VL:
 
         if self.args.mode == 1:
             for key in self.args.score_dict.keys():
-                score_file = f'{self.args.folder_path}importance_scores/{key}.npy'
+                score_file = f'{self.args.folder_path}/importance_scores/{key}.npy'
                 if not os.path.exists(score_file):
                     with open(score_file, 'wb') as f:
                         pickle.dump((1, self.args.score_dict[key]), f)
