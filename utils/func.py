@@ -5,16 +5,20 @@ import csv
 import torch
 import pickle
 import re
+import sys
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.nn.functional as F
 from pathlib import Path
+from itertools import combinations
 from pycocotools.coco import COCO
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
 from .crop import crop
 
 class TextEvaluation:
@@ -223,119 +227,12 @@ def save_ISM_with_token_mask_in_one_layer(old_tensor, modality_info, args):
     importance_dict['attn_q'] = min_max_normalize(attn_val_q)
 
     # save ISM of layer neurons to modality tokens
-    for ind, metric_type in enumerate(args.importance_metric_types):
+    for ind, metric_type in enumerate(args.all_importance_metric_types):
         args.ISM_of_one_sample[ind, index, layer_index] = importance_dict[metric_type]
 
-def fill_tuple(template, value_tuple):
-    """
-    fill the "-1" position in tuple
-    """
-    template_list = list(template)
-    value_iter = iter(value_tuple)
-    for i, val in enumerate(template_list):
-        if val == -1:
-            template_list[i] = next(value_iter)
-    return tuple(template_list)
-
-def top_k_pos(matrix, template, K, K2=None):
-    """
-    Helper function to get the top K (modality, layer, neuron) tuples from a 3D matrix.
-    """
-    # Flatten the matrix and get the indices of the top K values
-    flat_matrix = matrix.flatten()
-    vals = None
-    ret_dic = {}
-    if K2 is not None:
-        flat_indices = torch.topk(flat_matrix, K2).indices[K:]
-        vals = torch.topk(flat_matrix, K2).values[K:]
-    else:
-        flat_indices = torch.topk(flat_matrix, K).indices
-        vals = torch.topk(flat_matrix, K).values
-    # Convert the flat indices to 3D indices (modality, layer, neuron)
-    ret = list(zip(*torch.unravel_index(flat_indices, matrix.shape)))
-    int_list = [fill_tuple(template, tuple(tensor.item() for tensor in tup)) for tup in ret]
-    vals = vals.tolist()
-    assert len(int_list) == len(vals)
-    for i, val in enumerate(vals):
-        ret_dic[val] = int_list[i]
-    return ret_dic
-
-# def select_k_neurons(sum_ISM, args):
-#     """
-#     input: ISM, select_ratio, importance_metric_weights, select_strategy
-#     output: {ISM_val: (modality_index, 0, 22), ...}, {'text': [(0, 22),...]}
-#     """
-#     modalities, ISM = sum_ISM
-#     select_ratio, importance_metric_weights, select_strategy = args.select_ratio, args.importance_metric_weights, select_strategy
-#     new_shape = (5,) + (1,) * (len(ISM.shape) - 1)
-#     importance_metric_weights = torch.tensor(importance_metric_weights).view(new_shape).to(ISM.device)
-#     matrix = (ISM * importance_metric_weights).sum(dim=0)
-    
-#     K = int(select_ratio * ISM.shape[-1] * ISM.shape[-2]) # 5304
-#     if len(matrix.shape) == 2: # only one modality
-#         matrix = matrix.unsqueeze(0)
-
-#     M, L, N = matrix.shape
-#     base_dic = {}
-#     remain_dic = {}
-#     if select_strategy == "adaptive":
-#         # Select top K from the entire MLN matrix as a 1D vector.
-#         K1 = K // 1
-#         remain_K = K - K1 * 1
-#         base_dic.update(top_k_pos(matrix, (-1, -1, -1), K))
-#         remain_dic.update(top_k_pos(matrix, (-1, -1, -1), K1, K1+1))
-
-#     elif select_strategy == "layer_uniform":
-#         # Split along layers, select top K/L per layer.
-#         K1 = K // L
-#         remain_K = K - K1 * L
-#         for l in range(L):
-#             sub_matrix = matrix[:, l, :]
-#             base_dic.update(top_k_pos(sub_matrix, (-1, l, -1), K1))
-#             remain_dic.update(top_k_pos(sub_matrix, (-1, l, -1), K1, K1+1))
-
-#     elif select_strategy == "modal_uniform":
-#         # Split along modalities, select top K/M per modality.
-#         K1 = K // M
-#         remain_K = K - K1 * M
-#         for m in range(M):
-#             sub_matrix = matrix[m, :, :]
-#             base_dic.update(top_k_pos(sub_matrix, (m, -1, -1), K1))
-#             remain_dic.update(top_k_pos(sub_matrix, (m, -1, -1), K1, K1+1))
-        
-#     elif select_strategy == "uniform":
-#         # Uniform: Split into ML parts, select top K/ML from each.
-#         K1 = K // (M * L)
-#         remain_K = K - K1 * M * L
-#         for m in range(M):
-#             for l in range(L):
-#                 sub_matrix = matrix[m, l, :]
-#                 base_dic.update(top_k_pos(sub_matrix, (m, l, -1), K1))
-#                 remain_dic.update(top_k_pos(sub_matrix, (m, l, -1), K1, K1+1))
-        
-#     elif select_strategy == "random":
-#         total_elements = matrix.numel()
-#         flat_tensor = matrix.flatten()
-#         random_indices = torch.randperm(total_elements)[:K]
-#         values = flat_tensor[random_indices]
-#         pos = torch.unravel_index(random_indices, matrix.shape)
-#         pos = list(zip(*pos))
-#         pos = [tuple(tensor.item() for tensor in tup) for tup in pos]
-#         base_dic = dict(zip(values.tolist(), pos))
-    
-#     if select_strategy != "random":
-#         r_keys = sorted(remain_dic, key=remain_dic.get, reverse=True)[:remain_K]
-#         base_dic.update({key: remain_dic[key] for key in r_keys})
-
-#     modal_dic = {modal: [] for modal in modalities}
-#     for value in base_dic.values():
-#         modality_idx = value[0]
-#         modal_dic[modalities[modality_idx]].append(value[1:])
-#     return base_dic, modal_dic
-
-def find_topK_values(data_dict, K): # no overlap
-    ret = {key: [] for key in data_dict.keys()}
-    
+def find_topK_values(data_dict, ret, K, return_flag=False): # no overlap
+    if return_flag:
+        ret = {'-': []}
     combined_tensor = sum(data_dict.values())
     _, topk_indices = torch.topk(combined_tensor.flatten(), K)
     
@@ -352,78 +249,78 @@ def find_topK_values(data_dict, K): # no overlap
                 max_value = tensor[row, col]
                 max_tensor_name = name
         ret[max_tensor_name].append((int(row), int(col)))
-    return ret
+    return ret if return_flag else None
 
-def select_modality_neurons_from_importance_scores(sum_ISM, args):
+def analyse_modality_specific_neurons(input_dict, L):
+    modalities = list(input_dict.keys())
+    modality_combinations = []
+    for i in range(1, len(modalities) + 1):
+        modality_combinations.extend(combinations(modalities, i))
+
+    columns = ['-'.join(combo) for combo in modality_combinations]
+    df = pd.DataFrame(0, index=list(range(L)) + ['total'], columns=columns)
+
+    for modality, neurons in input_dict.items():
+        for layer in range(L):
+            neuron_count = sum(1 for l, _ in neurons if l == layer)
+            df.at[layer, modality] = neuron_count
+
+    for combo in modality_combinations:
+        combo_name = '-'.join(combo)
+        if len(combo) > 1:
+            for layer in range(L):
+                neurons_per_layer = [set(n for l, n in input_dict[modality] if l == layer) for modality in combo]
+                intersection = set.intersection(*neurons_per_layer) if neurons_per_layer else set()
+                df.at[layer, combo_name] = len(intersection)
+    df.loc['total'] = df.sum(axis=0)
+    return df
+
+def select_modality_neurons_from_importance_scores(sum_ISM, mask_index):
     """
     input: ISM, select_ratio, importance_metric_weights, select_strategy
     output: {'text': [(0, 22),...]}
     """
-    modalities, ISM = sum_ISM
-    w_scores = {}
-    select_ratio, importance_metric_weights, select_strategy = args.select_ratio, args.importance_metric_weights, args.select_strategy
-    new_shape = (5,) + (1,) * (len(ISM.shape) - 1)
-    importance_metric_weights = torch.tensor(importance_metric_weights).view(new_shape).to(ISM.device)
-    matrix = (ISM * importance_metric_weights).sum(dim=0)
+    _, select_ratio, importance_metric_weights, select_strategy = mask_index
+    importance_metric_weights = [float(i) for i in importance_metric_weights.split('_')]
     
-    L, N = ISM.shape[-2], ISM.shape[-1]
+    modalities, ISM = sum_ISM
+    importance_metric_weights = torch.tensor(importance_metric_weights).view((5,1,1,1)).to(ISM.device)
+    weighted_ISM = (ISM * importance_metric_weights).sum(dim=0)
+    
+    weighted_ISM_dict = {}
+    M, L, N = len(modalities), ISM.shape[-2], ISM.shape[-1]
     K = int(select_ratio * L * N) # 5304
-    if len(matrix.shape) == 2: # only one modality
-        w_scores[modalities[0]] = matrix
-    else:
-        for index, modality in enumerate(modalities):
-            w_scores[modality] = matrix[index]
+    
+    modality_specific_neurons = {modality: [] for modality in (modalities + ["random"])}
+    for index, modality in enumerate(modalities):
+        weighted_ISM_dict[modality] = weighted_ISM[index]
         
-    if select_strategy == "random": # random
-        k_inds = {"random": [(random.randint(0, L - 1), random.randint(0, N - 1)) for _ in range(K)]}
-        
+    if select_strategy == "random":
+        modality_specific_neurons["random"] = [(random.randint(0, L - 1), random.randint(0, N - 1)) for _ in range(K)]
     elif select_strategy == "adaptive":
-        k_inds = find_topK_values(w_scores, K) # {'text':(L,N), ...}
-            
-    elif select_strategy == "LA_MU": # maybe overlap
-        k_inds = {}
-        k_split = K // len(w_scores)
-        for modal, modal_scores in w_scores.items():
-            sub_dict = {modal: modal_scores}
-            k_inds.update(find_topK_values(sub_dict, k_split)) # {'text':(L,N)}
-                
-    elif select_strategy == "LU_MA": # maybe overlap
-        k_split = K // L
-        keys = list(w_scores.keys())
-        Map = {i: keys[i] for i in range(len(keys))}
-        k_inds = {key: [] for key in keys}
-                    
+        find_topK_values(weighted_ISM_dict, modality_specific_neurons, K)
+    elif select_strategy == "LA_MU":
+        for modal, modal_scores in weighted_ISM_dict.items():
+            find_topK_values({modal: modal_scores}, modality_specific_neurons, K // M)           
+    elif select_strategy == "LU_MA":
+        Map = {i: modalities[i] for i in range(M)}
         for layer in range(L):
-            multimodal_single_layer = []
-            for modal, modal_scores in w_scores.items():
-                multimodal_single_layer.append(modal_scores[layer])
-            sub_dict = {'-': torch.stack(multimodal_single_layer)}
-            ret = find_topK_values(sub_dict, k_split)['-']
-            
-            for tuple in ret:
-                modal_ind, neuron_ind = tuple
-                k_inds[Map[modal_ind]].append((layer, neuron_ind))
-                    
-    elif select_strategy == "uniform": # best, maybe overlap
-        k_inds = {m: [] for m in w_scores.keys()}
-        k_split = K // (len(w_scores) * L)
+            sub_dict = {'-': torch.stack([v[layer] for v in weighted_ISM_dict.values()])}
+            ret = find_topK_values(sub_dict, modality_specific_neurons, K // L, return_flag=True)['-']
+            for (modal_ind, neuron_ind) in ret:
+                modality_specific_neurons[Map[modal_ind]].append((layer, neuron_ind))            
+    elif select_strategy == "uniform":
         for layer in range(L):
-            zero_matrix = torch.zeros(L, N).to(args.device)
-            for modal, modal_scores in w_scores.items():
-                w_score_layer = modal_scores[layer]
-                zero_matrix[layer] = w_score_layer
-                top_k_values = find_topK_values({modal: zero_matrix}, k_split)[modal] # {'text':(L,N)}
-                k_inds[modal].extend(top_k_values)
+            matrix = torch.zeros(L, N).to(ISM.device)
+            for modal, modal_scores in weighted_ISM_dict.items():
+                matrix[layer] = modal_scores[layer]
+                find_topK_values({modal: matrix}, modality_specific_neurons, K // (M * L))
+    
+    modality_specific_neurons = {k: v for k, v in modality_specific_neurons.items() if v}
+    analyse_df = analyse_modality_specific_neurons(modality_specific_neurons, L)
+    return modality_specific_neurons, analyse_df
 
-    return k_inds
-
-def extract_digits(s):
-    match = re.search(r'\d+', s)
-    if match:
-        return int(match.group(0))
-    return False
-
-def create_act_hook(layer_index, args):
+def create_activation_hook(layer_index, args):
     """
     hook for activation of mlp neurons in llm
     """
@@ -433,18 +330,23 @@ def create_act_hook(layer_index, args):
                 save_ISM_with_token_mask_in_one_layer(output, (index, modality, layer_index), args)
         
         elif args.mode == 3:
-            args.deactivation_val = output.min() if args.deactivation_val == -1 else args.deactivation_val            
-
-            if len(args.k_inds) == 1:
-                inds = next(iter(args.k_inds.values()))
-                inds = [t[1] for t in inds if t[0] == layer_index]
-                output[..., inds] = args.deactivation_val
+            if args.mask_modalities[0] == "all_modalities":
+                wanna_mask_modalities = list(args.modality_specific_neurons.keys())
             else:
-                for modal in args.mask_modalities:
-                    inds = args.k_inds[modal]
-                    inds = [t[1] for t in inds if t[0] == layer_index]
-                    output[..., inds] = args.deactivation_val
-        
+                supported_modalities = list(args.modality_specific_neurons.keys())
+                wanna_mask_modalities = args.mask_modalities
+                if not set(wanna_mask_modalities).issubset(set(supported_modalities)):
+                    print(f"Unsupported mask modalities: {wanna_mask_modalities}, {args.modality_split_type} only support {supported_modalities}!")
+                    sys.exit(0)
+            
+            all_positions = []
+            for modality, neurons in args.modality_specific_neurons.items():
+                if modality not in wanna_mask_modalities:
+                    continue
+                all_positions += neurons
+                
+            layer_positions = [t[1] for t in all_positions if t[0] == layer_index]
+            output[..., layer_positions] = output.min() if args.deactivation_val == -1 else args.deactivation_val            
         return output
     return activation_hook
 
@@ -460,7 +362,7 @@ def save_attn_matrix(attention_matrix, name, args):
     plt.ylabel("Tokens (Query)")
     plt.savefig(name, dpi=300, bbox_inches='tight')
 
-def create_attn_hook(layer_index, args):
+def create_attention_hook(layer_index, args):
     """
     hook for attention layer in llm
     """
@@ -474,7 +376,6 @@ def initialize_csv(csv_name, args):
     """
     initialize csv file
     """
-    args.csv_path = args.folder_path + csv_name
     args.csv_fieldnames = ["index", "dataset name", "sub-index", "text", "img", "video", "audio", "answer", "label"]
     args.csv_file = open(args.csv_path, mode='a+', newline='', encoding='utf-8')
     def initialize_csv_writer(args, add_lst):
@@ -584,3 +485,15 @@ def mmlu_get_next_sample(current_sample, counts):
         else:
             # No more categories
             return None
+        
+def check_values_in_lists(values, lists):
+    violations = []
+    
+    for i, (value, lst) in enumerate(zip(values, lists)):
+        if value not in lst:
+            violations.append(f"Value {value} at index {i} not in list {lst}")
+    
+    if not violations:
+        return True
+    else:
+        return violations

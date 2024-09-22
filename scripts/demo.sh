@@ -14,8 +14,8 @@ python main.py --dataset text_vqa --mode 1 --sample_num 29 --demo 1
 # stage1.5
 python main.py --mllm qwen2_vl --mode 1.5 --load_ISM_sample_num -1 -1 -1 --demo 1
 
-# stage2
-python main.py --mllm qwen2_vl --mode 2 --demo 1 --sum_ISM_path text_vqa29_coco_caption22_mmlu26
+# stage2 (can be skipped)
+python main.py --mllm qwen2_vl --mode 2 --demo 1
 
 # stage3
-python main.py --mllm qwen2_vl --mode 3 --demo 1 --sample_num 15 --sum_ISM_path text_vqa29_coco_caption22_mmlu26
+python main.py --mllm qwen2_vl --mode 3 --demo 1 --sample_num 22 --modality_split_type special_text_separate --sum_ISM_path text_vqa29_coco_caption22_mmlu26

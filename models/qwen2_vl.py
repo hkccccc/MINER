@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-from utils.func import create_act_hook, create_attn_hook
+from utils.func import create_activation_hook, create_attention_hook
 
 class Qwen2_VL:
     """
@@ -38,10 +38,10 @@ class Qwen2_VL:
 
         # register hooks
         for i in range(self.args.layer_num):
-            act_hook = create_act_hook(i, self.args)
+            act_hook = create_activation_hook(i, self.args)
             self.model.model.layers[i].mlp.act_fn.register_forward_hook(act_hook)
 
-            attn_hook = create_attn_hook(i, self.args)
+            attn_hook = create_attention_hook(i, self.args)
             self.model.model.layers[i].self_attn.register_forward_hook(attn_hook)
 
     def infer(self, data):
@@ -49,10 +49,10 @@ class Qwen2_VL:
         inference on the given information
         """
         self.args.ISM_of_one_sample = torch.zeros(
-            len(self.args.importance_metric_types), # T
-            len(self.args.all_modalities),          # M
-            self.args.layer_num,                    # L
-            self.args.hidden_size,                  # N 
+            len(self.args.all_importance_metric_types), # T
+            len(self.args.all_modalities),              # M
+            self.args.layer_num,                        # L
+            self.args.hidden_size,                      # N 
         ).to(self.args.device)
         
         prompt, img_path = data.get('text'), data.get('img')
@@ -110,21 +110,22 @@ class Qwen2_VL:
         )
         
         if self.args.mode == 1:
-            if not os.path.exists(self.args.folder_path + '/ISM'):
-                os.makedirs(self.args.folder_path + '/ISM')
-            ISM_path = self.args.folder_path + '/ISM/ISM.npy'
-            if not os.path.exists(ISM_path):
-                with open(ISM_path, "wb") as f:
+            if not os.path.exists(self.args.mllm_dataset_ISM_path):
+                os.makedirs(self.args.mllm_dataset_ISM_path)
+
+            ISM_file_path = f"{self.args.mllm_dataset_ISM_path}/ISM.npy"
+            if not os.path.exists(ISM_file_path):
+                with open(ISM_file_path, "wb") as f:
                     pickle.dump((1, self.args.ISM_of_one_sample), f)
             else:
-                with open(ISM_path, "rb") as f:
+                with open(ISM_file_path, "rb") as f:
                     sample_num, current_ISM = pickle.load(f)
                 sample_num += 1
                 current_ISM += self.args.ISM_of_one_sample
-                with open(ISM_path, "wb") as f:
+                with open(ISM_file_path, "wb") as f:
                     pickle.dump((sample_num, current_ISM), f)
-                if sample_num in self.args.save_score_steps:
-                    with open(self.args.folder_path + f'/ISM/ISM_{sample_num}.npy', "wb") as f:
+                if sample_num in self.args.all_save_sample_nums:
+                    with open(f'{self.args.mllm_dataset_ISM_path}/ISM_{sample_num}.npy', "wb") as f:
                         pickle.dump((sample_num, current_ISM), f)
 
         return output_text[0]

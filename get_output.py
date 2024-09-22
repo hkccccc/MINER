@@ -41,7 +41,7 @@ def get_outputs(file_str=None):
                 continue
         
         df = pd.read_csv(file)
-        print(len(df), file)
+        print(len(df), str(file.stem).split('--'))
         ret = {"correct": [], "bleu": [], "sbert_similarity": [], "cider": []}
         for index, row in df.iterrows():
             for key in ret.keys():
@@ -80,7 +80,6 @@ def check_masks(file_str=None):
         print("")
 
 # get_outputs(["layer_uniform"])
-get_outputs()
+get_outputs(["LA_MU"])
 # get_outputs(['r0.01_'])
 # check_masks(['r0.01_'])
-
