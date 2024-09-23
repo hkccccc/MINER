@@ -6,6 +6,7 @@ import torch
 import pickle
 import re
 import sys
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,8 +19,29 @@ from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from torch.utils.data import Dataset, DataLoader
 
 from .crop import crop
+
+class MSVD(Dataset):
+    def __init__(self) -> None:
+        super().__init__()
+        self.datas = json.load(open('/mnt/kaichen/data/MSVD/test_qa.json'))
+        map_ids =[x.strip().split(' ') for x in open('/mnt/kaichen/data/MSVD/youtube_mapping.txt').readlines()]
+        self.id_to_video_ids = {x[1]:x[0] for x in map_ids}
+
+    def __len__(self):
+        return len(self.datas)
+
+    def __getitem__(self, index):
+        data = self.datas[index]
+        video_id = 'vid'+str(data['video_id'])
+        video_name = self.id_to_video_ids[video_id] + '.avi'
+        image_path = os.path.join("/mnt/kaichen/data/MSVD/YouTubeClips", video_name)
+        question_id = data['id']
+        question = data['question'] + '\nAnswer the question using a single word or phrase.'
+        answer = data['answer']
+        return image_path, question, question_id, answer
 
 class TextEvaluation:
     """
@@ -385,7 +407,7 @@ def initialize_csv(csv_name, args):
         if args.csv_file.read(1) == '':
             args.csv_file.seek(0, 0)
             args.writer.writeheader()
-    if args.dataset in ["text_vqa", "mmlu"]:
+    if args.dataset in ["text_vqa", "mmlu", "msvd_qa"]:
         initialize_csv_writer(args, ["correct"])
     elif args.dataset == "coco_caption":
         initialize_csv_writer(args, ["bleu", "sbert_similarity", "cider"])

@@ -8,6 +8,7 @@ import pickle
 import itertools
 import pandas as pd
 from pathlib import Path
+from torch.utils.data import Dataset, DataLoader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -21,11 +22,12 @@ MLLM_MODALITIES = { # subset of ALL_MODALITIES
     'qwen2_vl': {
         'text_vqa': ["text", "special", "special_text", "image", "prompt"],
         'coco_caption': ["text", "special", "special_text", "image", "prompt"],
-        'mmlu': ["text", "special", "prompt"]
+        'mmlu': ["text", "special", "prompt"],
+        'msvd_qa': ["text", "special", "special_text", "video", "prompt"],
     }
 }
 ALL_SELECT_STRATEGIES = ["uniform", "adaptive", "LA_MU", "LU_MA", "random"]
-ALL_DATASETS = ["test", "text_vqa", "coco_caption", "mmlu"]
+ALL_DATASETS = ["test", "text_vqa", "coco_caption", "mmlu", "msvd_qa"]
 ALL_SELECT_RATIO = [0.001, 0.005, 0.01, 0.015, 0.02, 0.05, 0.1]
 ALL_IMPORTANCE_METRIC_TYPES = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
 ALL_SAVE_SAMPLE_NUMS = [10, 100, 500, 1000, 2500, 5000, 10000]
@@ -33,7 +35,8 @@ ALL_SAMPLE_NUMS = {
     'test': 1,
     'text_vqa': 5000,
     'coco_caption': 5000,
-    'mmlu': 14042
+    'mmlu': 14042,
+    'msvd_qa': 13157,
 }
 ALL_IMPORTANCE_METRIC_WEIGHTS = [
     [1,0,0,0,0], # prob
@@ -65,7 +68,7 @@ def main():
     # stage1: generate ISM
     parser.add_argument('--sample_num', type=int, default=-1, help="number of samples, -1 means all samples")
     # stage1.5: aggregate ISM from different datasets
-    parser.add_argument('--load_ISM_sample_num', type=int, nargs='+', default=[-1,10,-1], help="ISM_x.npy for [text_vqa,coco_caption,mmlu], 0 means not use, -1 means ISM.npy")
+    parser.add_argument('--load_ISM_sample_num', type=int, nargs='+', default=[-1,-1,-1,-1], help="ISM_x.npy for [text_vqa,coco_caption,mmlu,msvd_qa], 0 means not use, -1 means ISM.npy")
     # stage2: generate mask
     parser.add_argument('--sum_ISM_path', type=str, default="text_vqa5000_coco_caption5000_mmlu14042")
     parser.add_argument('--select_ratio', type=float, default=0.02, choices=ALL_SELECT_RATIO, help="the ratio of selected neurons")
@@ -86,8 +89,6 @@ def main():
     args.sample_num = ALL_SAMPLE_NUMS.get(args.dataset, args.sample_num) if args.sample_num == -1 else args.sample_num
     args.sample_num_start_from = 0
     
-    # ?
-    # 把参数的default去掉，必须指定
     args.all_save_sample_nums = ALL_SAVE_SAMPLE_NUMS
     args.all_modalities = ALL_MODALITIES
     args.all_importance_metric_types = ALL_IMPORTANCE_METRIC_TYPES
@@ -102,7 +103,7 @@ def main():
         base_folder_path = args.mllm_dataset_path if args.mode == 1 else f"{args.mllm_dataset_path}/mask_csv"
         args.csv_name = "origin" if args.mode == 1 else f"{args.sum_ISM_path}--{args.modality_split_type}--{args.select_ratio}--{'_'.join(map(str, args.importance_metric_weights))}--{args.select_strategy}--{'_'.join(args.mask_modalities)}--{args.deactivation_val}"
         args.csv_path = f"{base_folder_path}/{args.csv_name}.csv"
-        
+
         if not os.path.exists(base_folder_path):
             os.makedirs(base_folder_path)
             uf.initialize_csv(f'/{args.csv_name}.csv', args)
@@ -370,6 +371,21 @@ def main():
 
             if args.mmlu_qa_index >= args.sample_num:
                 break
+    
+    elif args.dataset=="msvd_qa":
+        dataset = uf.MSVD()
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
+        qa_index = 0
+        for data in dataloader:
+            if qa_index >= args.sample_num:
+                break
+            image_paths, questions, question_ids, answers = data
+            response = model.infer({'text': questions[0], 'video': image_paths[0]})
+            cor = uf.check_acc(response, answers)
+            csv_line = {"index": qa_index, "text": questions[0], "video": image_paths[0], 
+                        "answer": response, "label": answers, "correct": cor}
+            uf.handle_output(args, csv_line)
+            qa_index += 1
 
 if __name__ == "__main__":
     main()

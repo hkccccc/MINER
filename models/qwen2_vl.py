@@ -18,6 +18,8 @@ class Qwen2_VL:
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_path, torch_dtype="auto", device_map="auto"
         )
+        import pdb
+        pdb.set_trace()
         self.args.device = self.model.device
         # self.model = Qwen2VLForConditionalGeneration.from_pretrained(
         #     model_path,
@@ -33,8 +35,8 @@ class Qwen2_VL:
         self.processor = AutoProcessor.from_pretrained(model_path, min_pixels=min_pixels, max_pixels=max_pixels)
 
         # need to be designed manually
-        self.args.layer_num = int(len(self.model.model.layers)) # 28
-        self.args.hidden_size = 18944
+        self.args.layer_num = self.model.config.num_hidden_layers # 28
+        self.args.hidden_size = self.model.config.intermediate_size # 18944
 
         # register hooks
         for i in range(self.args.layer_num):
@@ -55,14 +57,16 @@ class Qwen2_VL:
             self.args.hidden_size,                      # N 
         ).to(self.args.device)
         
-        prompt, img_path = data.get('text'), data.get('img')
+        prompt, img_path, video_path = data.get('text'), data.get('img'), data.get('video')
         messages = [
             {
                 "role": "user",
                 "content": ([{"type": "image", "image": img_path}] if img_path is not None else []) + 
+                            ([{"type": "video", "video": video_path, "max_pixels": 360 * 420, "fps": 1.0,}] if video_path is not None else []) + 
                             [{"type": "text", "text": prompt}],
             }
         ]
+        
         # Preparation for inference
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
@@ -79,21 +83,23 @@ class Qwen2_VL:
         inputs = inputs.to(self.args.device)
 
         # 151655: <|image_pad|>
+        # 151656: <|video_pad|>
         # 151644: <|im_start|>
         # 151645: <|im_end|>
         # 151652: <|vision_start|>
         # 151653: <|vision_end|>
         special_token = torch.tensor([151644, 151645, 151652, 151653], device='cuda')
         image_mask = inputs['input_ids'] == 151655
+        video_mask = inputs['input_ids'] == 151656
         special_mask = torch.isin(inputs['input_ids'], special_token)
-        text_mask = ~(image_mask | special_mask)
+        text_mask = ~(image_mask | special_mask | video_mask)
         
         # subset of ALL_MODALITIES, all possible modalities of Qwen2-VL
-        # TODO video mask
         self.args.prompt_mask_shape = text_mask.shape
         self.args.input_modality_masks = {
             'text': text_mask,
             'image': image_mask,
+            'video': video_mask,
             'special': special_mask,
             'special_text': special_mask | text_mask,
             'prompt': torch.full_like(text_mask, True)
