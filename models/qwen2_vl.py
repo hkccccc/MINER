@@ -18,8 +18,6 @@ class Qwen2_VL:
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_path, torch_dtype="auto", device_map="auto"
         )
-        import pdb
-        pdb.set_trace()
         self.args.device = self.model.device
         # self.model = Qwen2VLForConditionalGeneration.from_pretrained(
         #     model_path,

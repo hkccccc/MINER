@@ -27,7 +27,7 @@ import ast
 import pickle
 from pathlib import Path
 import pandas as pd
-output_path = Path('/mnt/kaichen/modality_specific/outputs')
+output_path = Path('/mnt/kaichen/radar_onellm/modality_specific/outputs')
 
 def get_outputs(file_str=None):
     for file in output_path.rglob('*.csv'):
@@ -80,6 +80,5 @@ def check_masks(file_str=None):
         print("")
 
 # get_outputs(["layer_uniform"])
-get_outputs(["LA_MU"])
-# get_outputs(['r0.01_'])
-# check_masks(['r0.01_'])
+# get_outputs(["LA_MU"])
+get_outputs()

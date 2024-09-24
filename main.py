@@ -44,8 +44,11 @@ ALL_IMPORTANCE_METRIC_WEIGHTS = [
     [0,0,1,0,0], # max
     [0,0,0,1,0], # attn_k
     [0,0,0,0,1], # attn_q
-    [0,0.5,0.5,0,0], # 0.5mean+0.5max
-    [0.2,0.2,0.2,0.2,0.2]
+    [0,0.5,0.5,0,0],
+    [0,0,0,0.5,0.5],
+    [0,0.25,0.25,0.5,0],
+    [0,0.25,0.25,0,0.5],
+    [0.2,0.2,0.2,0.2,0.2],
 ]
 
 def main():
@@ -72,8 +75,8 @@ def main():
     # stage2: generate mask
     parser.add_argument('--sum_ISM_path', type=str, default="text_vqa5000_coco_caption5000_mmlu14042")
     parser.add_argument('--select_ratio', type=float, default=0.02, choices=ALL_SELECT_RATIO, help="the ratio of selected neurons")
-    parser.add_argument('--importance_metric_weights', default=[0,0.5,0.5,0,0], type=float, nargs='+', help="weights of different importance metric: [prob,mean,max,attn_k,attn_q], sum=1")
-    parser.add_argument('--select_strategy', default="adaptive", type=str, choices=ALL_SELECT_STRATEGIES)
+    parser.add_argument('--importance_metric_weights', default=[0,0.25,0.25,0.5,0], type=float, nargs='+', help="weights of different importance metric: [prob,mean,max,attn_k,attn_q], sum=1")
+    parser.add_argument('--select_strategy', default="LA_MU", type=str, choices=ALL_SELECT_STRATEGIES)
     # stage3: apply mask
     parser.add_argument('--modality_split_type', default="special_text_separate", type=str, choices=list(ALL_MODILITY_SPLIT_TYPES.keys()))
     parser.add_argument('--mask_modalities', type=str, nargs='+', default=["all_modalities"], help="choose modalities want to mask, should be subset of MLLM_MODALITIES[args.dataset]")
