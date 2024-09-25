@@ -12,7 +12,7 @@ python main.py --dataset mmlu --mode 1 --sample_num 26 --demo 1
 python main.py --dataset text_vqa --mode 1 --sample_num 29 --demo 1
 
 # stage1.5
-python main.py --mllm qwen2_vl --mode 1.5 --load_ISM_sample_num -1 -1 -1 --demo 1
+python main.py --mllm qwen2_vl --mode 1.5 --load_ISM_sample_num -1 -1 -1 -1 -1 -1 --demo 1
 
 # stage2 (can be skipped)
 python main.py --mllm qwen2_vl --mode 2 --demo 1

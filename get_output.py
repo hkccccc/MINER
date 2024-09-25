@@ -1,16 +1,7 @@
-# def reorder_sublist(original_list, new_list):
-#     if not set(new_list).issubset(original_list):
-#         return False
-#     reordered_list = sorted(new_list, key=lambda x: original_list.index(x))
-    
-#     return reordered_list
-
-# # 示例
-# original_list = ['a', 'b', 'c', 'd']
-# new_list = ['d', 'c']
-
-# result = reorder_sublist(original_list, new_list)
-# print(result)  # 输出: ['a', 'b']
+import ast
+import pickle
+from pathlib import Path
+import pandas as pd
 
 def count_layer_num(input_list):
     from collections import defaultdict
@@ -23,11 +14,8 @@ def count_layer_num(input_list):
     num_result = {key: len(result[key]) for key in result.keys()}
     return result, num_result
 
-import ast
-import pickle
-from pathlib import Path
-import pandas as pd
 output_path = Path('/mnt/kaichen/radar_onellm/modality_specific/outputs')
+output_path = Path('/mnt/kaichen/radar_onellm/modality_specific/demo_outputs')
 
 def get_outputs(file_str=None):
     for file in output_path.rglob('*.csv'):
@@ -42,13 +30,15 @@ def get_outputs(file_str=None):
         
         df = pd.read_csv(file)
         print(len(df), str(file.stem).split('--'))
-        ret = {"correct": [], "bleu": [], "sbert_similarity": [], "cider": []}
+        ret = {"correct": [], "bleu": [], "sbert_similarity": [], "cider": [], "wrr": []}
         for index, row in df.iterrows():
             for key in ret.keys():
                 if key in row:
                     ret[key].append(row[key])
         if len(ret["correct"]) != 0:
             print("correct", sum(ret["correct"]) / len(ret["correct"]))
+        elif len(ret["wrr"]) != 0:
+            print("wrr", sum(ret["wrr"]) / len(ret["wrr"]))
         else:
             for key in ["bleu", "sbert_similarity", "cider"]:
                 dic = {'max': [], 'min': [], 'mean': []}

@@ -27,10 +27,12 @@ MLLM_MODALITIES = { # subset of ALL_MODALITIES
     },
     'qwen2_audio': {
         'mmlu': ["text", "special", "prompt"],
+        'libri': ["text", "special", "special_text", "audio", "prompt"],
+        'vocal_sound': ["text", "special", "special_text", "audio", "prompt"]
     }
 }
 ALL_SELECT_STRATEGIES = ["uniform", "adaptive", "LA_MU", "LU_MA", "random"]
-ALL_DATASETS = ["test", "text_vqa", "coco_caption", "mmlu", "msvd_qa"]
+ALL_DATASETS = ["test", "text_vqa", "coco_caption", "mmlu", "msvd_qa", "libri", "vocal_sound"]
 ALL_SELECT_RATIO = [0.001, 0.005, 0.01, 0.015, 0.02, 0.05, 0.1]
 ALL_IMPORTANCE_METRIC_TYPES = ['prob', 'mean', 'max', 'attn_k', 'attn_q']
 ALL_SAVE_SAMPLE_NUMS = [10, 100, 500, 1000, 2500, 5000, 10000]
@@ -40,6 +42,8 @@ ALL_SAMPLE_NUMS = {
     'coco_caption': 5000,
     'mmlu': 14042,
     'msvd_qa': 13157,
+    'libri': 2620,
+    'vocal_sound': 20977,
 }
 ALL_IMPORTANCE_METRIC_WEIGHTS = [
     [1,0,0,0,0], # prob
@@ -73,8 +77,9 @@ def main():
 
     # stage1: generate ISM
     parser.add_argument('--sample_num', type=int, default=-1, help="number of samples, -1 means all samples")
+    parser.add_argument('--sample_start_ind', type=int, default=0)
     # stage1.5: aggregate ISM from different datasets
-    parser.add_argument('--load_ISM_sample_num', type=int, nargs='+', default=[-1,-1,-1,-1], help="ISM_x.npy for [text_vqa,coco_caption,mmlu,msvd_qa], 0 means not use, -1 means ISM.npy")
+    parser.add_argument('--load_ISM_sample_num', type=int, nargs='+', default=[-1,-1,-1,-1,-1,-1], help="ISM_x.npy for [text_vqa,coco_caption,mmlu,msvd_qa,libri,vocal_sound], 0 means not use, -1 means ISM.npy")
     # stage2: generate mask
     parser.add_argument('--sum_ISM_path', type=str, default="text_vqa5000_coco_caption5000_mmlu14042")
     parser.add_argument('--select_ratio', type=float, default=0.02, choices=ALL_SELECT_RATIO, help="the ratio of selected neurons")
@@ -89,6 +94,7 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     from utils import func as uf
+    from utils import crop as uc
     from models import Qwen2_VL, Qwen2_Audio
 
     uf.set_seed(2024)
@@ -99,6 +105,13 @@ def main():
     args.all_modalities = ALL_MODALITIES
     args.all_importance_metric_types = ALL_IMPORTANCE_METRIC_TYPES
     
+    # range(args.sample_start_ind, sargs.ample_end_ind)，左闭右开
+    if args.sample_start_ind + args.sample_num < ALL_SAMPLE_NUMS[args.dataset]:
+        args.sample_end_ind = args.sample_start_ind + args.sample_num
+    else:
+        args.sample_end_ind = ALL_SAMPLE_NUMS[args.dataset]
+    args.sample_str = f'start{args.sample_start_ind}_end{args.sample_end_ind}'
+
     args.demo_prefix = 'demo_' if args.demo else ''
     args.mllm_path = f"{args.demo_prefix}outputs/{args.mllm}"
     args.mllm_dataset_path = f"{args.mllm_path}/{args.dataset}"
@@ -108,13 +121,13 @@ def main():
     if args.mode in [1, 3]:
         base_folder_path = args.mllm_dataset_path if args.mode == 1 else f"{args.mllm_dataset_path}/mask_csv"
         args.csv_name = "origin" if args.mode == 1 else f"{args.sum_ISM_path}--{args.modality_split_type}--{args.select_ratio}--{'_'.join(map(str, args.importance_metric_weights))}--{args.select_strategy}--{'_'.join(args.mask_modalities)}--{args.deactivation_val}"
-        args.csv_path = f"{base_folder_path}/{args.csv_name}.csv"
+        args.csv_path = f"{base_folder_path}/{args.csv_name}_{args.sample_str}.csv"
 
         if not os.path.exists(base_folder_path):
             os.makedirs(base_folder_path)
             uf.initialize_csv(f'/{args.csv_name}.csv', args)
             
-        elif args.mode == 3 and not os.path.exists(args.csv_path):
+        elif args.mode == 3 or not os.path.exists(args.csv_path):
             uf.initialize_csv(f'/{args.csv_name}.csv', args)        
             
         else: # check whether need to resume
@@ -285,10 +298,9 @@ def main():
         model = Qwen2_Audio(args)
     else:
         pass # add more models
-
+    
     # processing questions from various benchmarks
     if args.dataset == 'test':
-        # data is a dict {'text': xxx, 'img': img_path, 'video': xxx, 'audio': xxx}
         if args.mllm == 'qwen2_vl':
             data1 = {
                 'text': "describe this image",
@@ -302,8 +314,7 @@ def main():
                 'text': 'what is the brand of this camera?',
                 'img': '/home/ubuntu/kaichen/data/TextVQA/val/train_images/003a8ae2ef43b901.jpg'
             }
-            response = model.infer(data1)
-            print(response)
+            print(model.infer(data1))
         elif args.mllm == 'qwen2_audio':
             data = {
                 'text': "What's that sound?",
@@ -316,15 +327,15 @@ def main():
         with open(f"{text_vqa_path}/val/TextVQA_0.5.1_val.json", "r", encoding='utf-8') as f:
             text_vqa = json.load(f)['data']
 
-        for i in range(args.sample_num_start_from, args.sample_num):
-            vqa = text_vqa[i]
+        for index in range(args.sample_start_ind, args.sample_end_ind):
+            vqa = text_vqa[index]
             data = {
                 'text': vqa['question'],
                 'img': f"{text_vqa_path}/val/train_images/{vqa['image_id']}.jpg"
             }
             response = model.infer(data)
             cor = uf.check_acc(response, vqa['answers'])
-            csv_line = {"index": i, "text": data["text"], "img": data["img"], 
+            csv_line = {"index": index, "text": data["text"], "img": data["img"], 
                         "answer": response, "label": vqa['answers'], "correct": cor}
             uf.handle_output(args, csv_line)
 
@@ -339,70 +350,116 @@ def main():
                       Now, describe the image.
                       """
         coco_prompt = re.sub(r'\s+', ' ', coco_prompt.replace("\n", "").strip())
-        for index, (_, value) in enumerate(coco_data.items(), start=args.sample_num_start_from):
-            if index >= args.sample_num:
-                break
-            gt_captions = value['anns']
-            response = model.infer({'text': coco_prompt, 'img': value['img']})
-            ret = evaluator.evaluate(response, gt_captions)
+        
+        for index, (_, value) in enumerate(coco_data.items()):
+            if args.sample_start_ind <= index < args.sample_end_ind:
+                gt_captions = value['anns']
+                response = model.infer({'text': coco_prompt, 'img': value['img']})
+                ret = evaluator.evaluate(response, gt_captions)
 
-            csv_line = {"index": index, "text": coco_prompt, "img": value['img'], 
-                        "answer": response, "label": gt_captions, "bleu": ret["bleu"], 
-                        "cider": ret["cider"], "sbert_similarity": ret["sbert_similarity"]}
-            uf.handle_output(args, csv_line)
+                csv_line = {"index": index, "text": coco_prompt, "img": value['img'], 
+                            "answer": response, "label": gt_captions, "bleu": ret["bleu"], 
+                            "cider": ret["cider"], "sbert_similarity": ret["sbert_similarity"]}
+                uf.handle_output(args, csv_line)
     
     elif args.dataset == 'mmlu':
-        data_dir = '/mnt/kaichen/data/mmlu_data'
-        subjects = sorted([f.split("_test.csv")[0] for f in os.listdir(os.path.join(data_dir, "test")) if "_test.csv" in f])
+        subjects = sorted(f[:-9] for f in os.listdir('/mnt/kaichen/data/mmlu_data/test') if f.endswith('_test.csv'))
+        current_subject = None
+        current_subject_count = 0
+        choices = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
+        mmlu_data = pd.read_parquet("/mnt/kaichen/data/mmlu_data/mmlu-test-all.parquet", engine='pyarrow')
 
-        total_qestions = 0
-        sub_num = {}
-        for sub in subjects:
-            test_df = pd.read_csv(os.path.join(data_dir, "test", sub + "_test.csv"), header=None)
-            total_qestions += test_df.shape[0]
-            sub_num[sub] = test_df.shape[0]
-
-        if args.sample_num_start_from == 0:
-            print(f'MMLU bench has total {total_qestions} questions, num of each subject is:')
-            for index, (key, value) in enumerate(sub_num.items()):
-                print(f'subject {index}: {key} - {value}')
-            print("")
-
-        if args.sample_num_start_from != 0:
-            args.start_sub, args.start_ind = uf.mmlu_get_next_sample(args.mmlu_resume_args, sub_num)
-        else:
-            args.start_sub, args.start_ind = subjects[0], 0
-
-        args.mmlu_qa_index = args.sample_num_start_from
-        start_flag = False
-        args.ntrain = 5
+        dev_test_dict = {}
         for subject in subjects:
-            if subject != args.start_sub and not start_flag:
-                continue
-            elif subject == args.start_sub:
-                start_flag = True
+            dev_df = pd.read_csv(f"/mnt/kaichen/data/mmlu_data/dev/{subject}_dev.csv", header=None)[:5]
+            test_df = pd.read_csv(f"/mnt/kaichen/data/mmlu_data/test/{subject}_test.csv", header=None)
+            dev_test_dict[subject] = {'dev': dev_df, 'test': test_df}
 
-            dev_df = pd.read_csv(os.path.join(data_dir, "dev", subject + "_dev.csv"), header=None)[:args.ntrain]
-            test_df = pd.read_csv(os.path.join(data_dir, "test", subject + "_test.csv"), header=None)
-            uf.eval_mmlu(model, subject, dev_df, test_df, args)
+        for index, case in mmlu_data.iterrows():
+            subject = case['subject']
+            if subject != current_subject:
+                current_subject = subject
+                current_subject_count = 0
+            else:
+                current_subject_count += 1
+                
+            if args.sample_start_ind <= index < args.sample_end_ind:
+                k = 5
+                prompt_end = uf.format_example(dev_test_dict[subject]['test'], current_subject_count, include_answer=False)
+                train_prompt = uf.gen_prompt(dev_test_dict[subject]['dev'], subject, k)
+                prompt = train_prompt + prompt_end
+                
+                while uc.crop(prompt) != prompt:
+                    k -= 1
+                    train_prompt = uf.gen_prompt(dev_test_dict[subject]['dev'], subject, k)
+                    prompt = train_prompt + prompt_end
 
-            if args.mmlu_qa_index >= args.sample_num:
-                break
+                pred = model.infer({'text': prompt})
+                label = choices[case['answer']]
+                csv_line = {"index": index, "dataset name": subject, "sub-index": current_subject_count, "text": prompt,
+                            "answer": pred, "label": label, "correct": (pred[0] == label)}
+                uf.handle_output(args, csv_line)
     
     elif args.dataset=="msvd_qa":
         dataset = uf.MSVD()
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
-        qa_index = 0
+        index = 0
         for data in dataloader:
-            if qa_index >= args.sample_num:
-                break
-            image_paths, questions, question_ids, answers = data
-            response = model.infer({'text': questions[0], 'video': image_paths[0]})
-            cor = uf.check_acc(response, answers)
-            csv_line = {"index": qa_index, "text": questions[0], "video": image_paths[0], 
-                        "answer": response, "label": answers, "correct": cor}
-            uf.handle_output(args, csv_line)
-            qa_index += 1
+            if args.sample_start_ind <= index < args.sample_end_ind:
+                image_paths, questions, question_ids, answers = data
+                response = model.infer({'text': questions[0], 'video': image_paths[0]})
+                cor = uf.check_acc(response, answers)
+                csv_line = {"index": index, "text": questions[0], "video": image_paths[0], 
+                            "answer": response, "label": answers, "correct": cor}
+                uf.handle_output(args, csv_line)
+            index += 1
+    
+    elif args.dataset == 'libri':
+        # Word Recognition Rate(WRR) = 1 - WER
+        paths, labels = uf.load_libri()
+        prompt = "Please transcribe the following audio directly into plain text without any additional explanations, prefixes, or descriptions. Only output the transcription of the spoken content in the audio."
+
+        for index, audio_path in enumerate(paths):
+            if args.sample_start_ind <= index < args.sample_end_ind:
+                label = labels[index]
+                response = model.infer({"text": prompt, "audio": audio_path})
+                csv_line = {"index": index, "text": prompt, "audio": audio_path, 
+                            "answer": response, "label": label, "wrr": 1 - uf.wer(label, response)}
+                uf.handle_output(args, csv_line)
+            
+    elif args.dataset == 'vocal_sound':
+        label_dict = {
+            '/m/01j3sz': 'Laughter',
+            '/m/07plz5l': 'Sigh',
+            '/m/01b_21': 'Cough',
+            '/m/0dl9sf8': 'Throat clearing',
+            '/m/01hsr_': 'Sneeze',
+            '/m/07ppn3j': 'Sniff'
+        }
+        prompt = """You are a sound classification model. Your task is to classify a given audio sample into one of the following categories based on its content:
+                 1. Laughter
+                 2. Sigh
+                 3. Cough
+                 4. Throat clearing
+                 5. Sneeze
+                 6. Sniff
+                 Please analyze the audio sample and provide the corresponding category name.
+                 """
+        
+        json_path = "/mnt/kaichen/data/vocal_sound_release_16k/datafiles/all.json"
+        old_path_str = "/data/sls/scratch/yuangong/vocalsound2/data/vs_processed/data_16k/"
+        new_path_str = "/mnt/kaichen/data/vocal_sound_release_16k/audio_16k/"
+
+        with open(json_path, 'r') as f:
+            file_lst = json.load(f)['data']
+        
+        for index, item in enumerate(file_lst):
+            if args.sample_start_ind <= index < args.sample_end_ind:
+                audio_path, label = item['wav'].replace(old_path_str, new_path_str), item['labels']
+                response = model.infer({"text": prompt, "audio": audio_path})
+                csv_line = {"index": index, "text": prompt, "audio": audio_path, 
+                            "answer": response, "label": label_dict[label], "correct": (label_dict[label] in response)}
+                uf.handle_output(args, csv_line)
 
 if __name__ == "__main__":
     main()

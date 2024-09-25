@@ -103,7 +103,6 @@ class Qwen2_VL:
             'prompt': torch.full_like(text_mask, True)
         }
         assert not torch.any((image_mask & special_mask))
-
         # Inference: Generation of the output
         generated_ids = self.model.generate(**inputs, max_new_tokens=128)
         generated_ids_trimmed = [
@@ -117,7 +116,7 @@ class Qwen2_VL:
             if not os.path.exists(self.args.mllm_dataset_ISM_path):
                 os.makedirs(self.args.mllm_dataset_ISM_path)
 
-            ISM_file_path = f"{self.args.mllm_dataset_ISM_path}/ISM.npy"
+            ISM_file_path = f"{self.args.mllm_dataset_ISM_path}/ISM_{self.args.sample_str}.npy"
             if not os.path.exists(ISM_file_path):
                 with open(ISM_file_path, "wb") as f:
                     pickle.dump((1, self.args.ISM_of_one_sample), f)
@@ -129,7 +128,7 @@ class Qwen2_VL:
                 with open(ISM_file_path, "wb") as f:
                     pickle.dump((sample_num, current_ISM), f)
                 if sample_num in self.args.all_save_sample_nums:
-                    with open(f'{self.args.mllm_dataset_ISM_path}/ISM_{sample_num}.npy', "wb") as f:
+                    with open(f'{self.args.mllm_dataset_ISM_path}/ISM_{self.args.sample_str}_{sample_num}.npy', "wb") as f:
                         pickle.dump((sample_num, current_ISM), f)
 
         return output_text[0]

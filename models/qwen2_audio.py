@@ -2,12 +2,7 @@
 import torch
 import os
 import pickle
-import numpy as np
-from qwen_vl_utils import process_vision_info
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from utils.func import create_activation_hook, create_attention_hook
-from io import BytesIO
-from urllib.request import urlopen
 import librosa
 from transformers import Qwen2AudioForConditionalGeneration, AutoProcessor
 
@@ -44,7 +39,6 @@ class Qwen2_Audio:
             self.args.layer_num,                        # L
             self.args.hidden_size,                      # N 
         ).to(self.args.device)
-        
         prompt, audio_path = data.get('text'), data.get('audio')
           
         if audio_path is not None:
@@ -71,7 +65,6 @@ class Qwen2_Audio:
                     if ele["type"] == "audio":
                         audios.append(
                             librosa.load(
-                                # BytesIO(urlopen(ele['audio_url']).read()), 
                                 ele['audio'],
                                 sr=self.processor.feature_extractor.sampling_rate)[0]
                         )
@@ -80,8 +73,9 @@ class Qwen2_Audio:
             audios = None
         
         inputs = self.processor(text=text, audios=audios, return_tensors="pt", padding=True)
+        # 这里报错：It is strongly recommended to pass the `sampling_rate` argument to this function. Failing to do so can result in silent errors that might be hard to debug.
         inputs = inputs.to(self.args.device)
-
+        
         # 151644: <|im_start|>
         # 151645: <|im_end|>
         # 151647: <|audio_bos|>
@@ -103,16 +97,16 @@ class Qwen2_Audio:
         }
         assert not torch.any((audio_mask & special_mask))
 
-        # generate_ids = self.model.generate(**inputs, max_length=256)
-        generate_ids = self.model.generate(**inputs, max_length=2048)
+        generate_ids = self.model.generate(**inputs, max_new_tokens=128)
         generate_ids = generate_ids[:, inputs.input_ids.size(1):]
+
         response = self.processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         
         if self.args.mode == 1:
             if not os.path.exists(self.args.mllm_dataset_ISM_path):
                 os.makedirs(self.args.mllm_dataset_ISM_path)
 
-            ISM_file_path = f"{self.args.mllm_dataset_ISM_path}/ISM.npy"
+            ISM_file_path = f"{self.args.mllm_dataset_ISM_path}/ISM_{self.args.sample_str}.npy"
             if not os.path.exists(ISM_file_path):
                 with open(ISM_file_path, "wb") as f:
                     pickle.dump((1, self.args.ISM_of_one_sample), f)
@@ -124,7 +118,7 @@ class Qwen2_Audio:
                 with open(ISM_file_path, "wb") as f:
                     pickle.dump((sample_num, current_ISM), f)
                 if sample_num in self.args.all_save_sample_nums:
-                    with open(f'{self.args.mllm_dataset_ISM_path}/ISM_{sample_num}.npy', "wb") as f:
+                    with open(f'{self.args.mllm_dataset_ISM_path}/ISM_{self.args.sample_str}_{sample_num}.npy', "wb") as f:
                         pickle.dump((sample_num, current_ISM), f)
 
         return response

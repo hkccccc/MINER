@@ -347,7 +347,25 @@ def create_activation_hook(layer_index, args):
     hook for activation of mlp neurons in llm
     """
     def activation_hook(module, input, output):
-        if args.mode == 1 and output.shape[:-1] == args.prompt_mask_shape:
+        if args.mode == 1 and (output.shape[:-1] == args.prompt_mask_shape or output.shape[-2] > 1):
+            
+            if args.dataset in ['libri', 'vocal_sound'] and output.shape[:-1] != args.prompt_mask_shape:
+                # if data has audio modality, need to update all masks first
+                _, num_tokens = args.prompt_mask_shape
+                pad_token_num = output.shape[-2] - num_tokens
+                assert args.input_modality_masks['audio'].sum() == 1
+                _, start_ind = torch.nonzero(args.input_modality_masks['audio'] == 1, as_tuple=True)
+                start_ind += 1
+                
+                zero_value = torch.zeros((1, pad_token_num), dtype=torch.bool).to(args.device)
+                one_value = torch.ones((1, pad_token_num), dtype=torch.bool).to(args.device)
+                for modality, mask in args.input_modality_masks.items():
+                    if modality == 'audio':
+                        args.input_modality_masks[modality] = torch.cat((mask[:, :start_ind], one_value, mask[:, start_ind:]), dim=1)
+                    else:
+                        args.input_modality_masks[modality] = torch.cat((mask[:, :start_ind], zero_value, mask[:, start_ind:]), dim=1)
+                args.prompt_mask_shape = args.input_modality_masks['audio'].shape
+                
             for index, modality in enumerate(args.all_modalities):
                 save_ISM_with_token_mask_in_one_layer(output, (index, modality, layer_index), args)
         
@@ -407,10 +425,12 @@ def initialize_csv(csv_name, args):
         if args.csv_file.read(1) == '':
             args.csv_file.seek(0, 0)
             args.writer.writeheader()
-    if args.dataset in ["text_vqa", "mmlu", "msvd_qa"]:
+    if args.dataset in ["text_vqa", "mmlu", "msvd_qa", "vocal_sound"]:
         initialize_csv_writer(args, ["correct"])
     elif args.dataset == "coco_caption":
         initialize_csv_writer(args, ["bleu", "sbert_similarity", "cider"])
+    elif args.dataset == "libri":
+        initialize_csv_writer(args, ["wrr"])
 
 def handle_output(args, csv_line):
     """
@@ -458,55 +478,6 @@ def gen_prompt(train_df, subject, k=-1):
     for i in range(k):
         prompt += format_example(train_df, i)
     return prompt
-
-def eval_mmlu(model, subject, dev_df, test_df, args, re_args=None):
-    """
-    answer the questions from subject one by one
-    """
-    k = args.ntrain
-    start = args.start_ind if args.start_sub == subject else 0
-    
-    for i in range(start, test_df.shape[0]):
-        if args.mmlu_qa_index >= args.sample_num:
-            return
-
-        prompt_end = format_example(test_df, i, include_answer=False)
-        train_prompt = gen_prompt(dev_df, subject, k)
-        prompt = train_prompt + prompt_end
-
-        while crop(prompt) != prompt:
-            k -= 1
-            train_prompt = gen_prompt(dev_df, subject, k)
-            prompt = train_prompt + prompt_end
-
-        label = test_df.iloc[i, test_df.shape[1]-1]
-        pred = model.infer({'text': prompt})
-
-        csv_line = {"index": args.mmlu_qa_index, "dataset name": subject, "sub-index": i, "text": prompt,
-                    "answer": pred, "label": label, "correct": (pred[0] == label)}
-        args.mmlu_qa_index += 1
-        handle_output(args, csv_line)
-    return
-
-def mmlu_get_next_sample(current_sample, counts):
-    """
-    get next sample
-    """
-    current_category, current_index = current_sample
-    # Determine if we need to move to the next category
-    if current_index + 1 < counts[current_category]:
-        # Move to the next index within the same category
-        return (current_category, current_index + 1)
-    else:
-        # Move to the next category
-        categories = list(counts.keys())
-        current_category_index = categories.index(current_category)
-        if current_category_index + 1 < len(categories):
-            next_category = categories[current_category_index + 1]
-            return (next_category, 0)
-        else:
-            # No more categories
-            return None
         
 def check_values_in_lists(values, lists):
     violations = []
@@ -519,3 +490,94 @@ def check_values_in_lists(values, lists):
         return True
     else:
         return violations
+    
+def load_libri():
+    LIBRISPEECH_DIR = '/mnt/kaichen/data/LibriSpeech/test-clean'
+    # 存储音频和文本的列表
+    audio_data = []
+    transcriptions = []
+
+    # 遍历 test-clean 文件夹中的每个说话人子文件夹
+    for speaker_id in os.listdir(LIBRISPEECH_DIR):
+        speaker_dir = os.path.join(LIBRISPEECH_DIR, speaker_id)
+        if os.path.isdir(speaker_dir):
+            # 遍历说话人文件夹中的每个章节文件夹
+            for chapter_id in os.listdir(speaker_dir):
+                chapter_dir = os.path.join(speaker_dir, chapter_id)
+                if os.path.isdir(chapter_dir):
+                    # 读取该章节中的转录文本文件
+                    transcription_file = os.path.join(chapter_dir, f'{speaker_id}-{chapter_id}.trans.txt')
+                    if os.path.exists(transcription_file):
+                        with open(transcription_file, 'r') as f:
+                            lines = f.readlines()
+                            # 遍历每个音频片段和转录文本
+                            for line in lines:
+                                # 每行格式：音频文件名（无扩展名） + 对应转录文本
+                                parts = line.strip().split(' ', 1)
+                                if len(parts) == 2:
+                                    audio_filename, transcription = parts
+                                    audio_filepath = os.path.join(chapter_dir, f'{audio_filename}.flac')
+                                    # 读取音频数据
+                                    # waveform, sample_rate = torchaudio.load(audio_filepath)
+                                    # # 将音频数据和转录文本存入列表
+                                    # audio_data.append((waveform, sample_rate))
+                                    audio_data.append(audio_filepath)
+                                    transcriptions.append(transcription)
+    return audio_data, transcriptions
+
+def remove_prefix(hyp, ref):
+    """
+    尝试从假设文本 (hypothesis) 中去除不必要的前缀或后缀，专注于最匹配的部分。
+    """
+    # 将文本都转为小写
+    ref = ref.lower().strip()
+    hyp = hyp.lower().strip()
+
+    # 找到假设文本中参考文本的位置，并提取出相应的子字符串
+    if ref in hyp:
+        return ref
+    else:
+        # 如果找不到完全匹配的参考文本，返回原假设文本
+        return hyp
+
+def wer(ref, hyp):
+    """
+    计算忽略大小写并去除不相关前缀后的 Word Error Rate (WER)
+    
+    参数:
+    ref -- 参考文本 (ground truth)
+    hyp -- 预测文本 (hypothesis)
+    
+    返回:
+    wer_score -- WER 分数
+    """
+    # 去除假设文本中可能存在的无关前缀
+    hyp = remove_prefix(hyp, ref)
+
+    # 将文本都转为小写，并拆分为单词列表
+    ref_words = ref.lower().split()
+    hyp_words = hyp.lower().split()
+
+    # 初始化编辑距离矩阵
+    d = np.zeros((len(ref_words) + 1, len(hyp_words) + 1), dtype=np.uint8)
+
+    # 初始化边界条件
+    for i in range(len(ref_words) + 1):
+        d[i][0] = i
+    for j in range(len(hyp_words) + 1):
+        d[0][j] = j
+
+    # 动态规划计算最小编辑距离
+    for i in range(1, len(ref_words) + 1):
+        for j in range(1, len(hyp_words) + 1):
+            if ref_words[i - 1] == hyp_words[j - 1]:
+                d[i][j] = d[i - 1][j - 1]  # 如果相等，保留上一步的值
+            else:
+                substitution = d[i - 1][j - 1] + 1
+                insertion = d[i][j - 1] + 1
+                deletion = d[i - 1][j] + 1
+                d[i][j] = min(substitution, insertion, deletion)
+
+    # WER 是编辑距离与参考词数的比率
+    wer_score = d[len(ref_words)][len(hyp_words)] / len(ref_words)
+    return wer_score
