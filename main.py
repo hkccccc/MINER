@@ -24,6 +24,9 @@ MLLM_MODALITIES = { # subset of ALL_MODALITIES
         'coco_caption': ["text", "special", "special_text", "image", "prompt"],
         'mmlu': ["text", "special", "prompt"],
         'msvd_qa': ["text", "special", "special_text", "video", "prompt"],
+    },
+    'qwen2_audio': {
+        'mmlu': ["text", "special", "prompt"],
     }
 }
 ALL_SELECT_STRATEGIES = ["uniform", "adaptive", "LA_MU", "LU_MA", "random"]
@@ -56,7 +59,7 @@ def main():
     main function
     """
     parser = argparse.ArgumentParser(description="A simple example script to demonstrate argparse.")    
-    parser.add_argument('--mllm', type=str, default='qwen2_vl', choices=["qwen2_vl", "one_llm"], help="the mllm to be analyzed")
+    parser.add_argument('--mllm', type=str, default='qwen2_vl', choices=["qwen2_vl", "qwen2_audio"], help="the mllm to be analyzed")
     parser.add_argument('--dataset', type=str, default='text_vqa', choices=ALL_DATASETS)
     parser.add_argument('--gpu', type=str, default='0', help="gpu_id")
     parser.add_argument('--demo', type=int, default=0, help="switch to 1 if wanna run demo with demo.sh")
@@ -86,7 +89,7 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     from utils import func as uf
-    from models import Qwen2_VL
+    from models import Qwen2_VL, Qwen2_Audio
 
     uf.set_seed(2024)
     args.sample_num = ALL_SAMPLE_NUMS.get(args.dataset, args.sample_num) if args.sample_num == -1 else args.sample_num
@@ -127,6 +130,8 @@ def main():
     if args.mode == 1.5:
         ISM_list = []
         sum_ISM_path = f"{args.mllm_path}/sum_ISM/"
+
+        assert len(args.load_ISM_sample_num) == len(ALL_DATASETS) - 1
         for dataset, ISM_sample_num in zip(ALL_DATASETS[1:], args.load_ISM_sample_num):
             if ISM_sample_num == 0: continue
             ISM_file = "ISM.npy" if ISM_sample_num == -1 else f'ISM_{ISM_sample_num}.npy'
@@ -276,26 +281,35 @@ def main():
     # create mllm model
     if args.mllm == 'qwen2_vl':
         model = Qwen2_VL(args)
+    elif args.mllm == 'qwen2_audio':
+        model = Qwen2_Audio(args)
     else:
         pass # add more models
 
     # processing questions from various benchmarks
     if args.dataset == 'test':
         # data is a dict {'text': xxx, 'img': img_path, 'video': xxx, 'audio': xxx}
-        data1 = {
-            'text': "describe this image",
-            'img': "scripts/test.jpg"
-        }
-        data2 = {
-            'text': "What are the words in the picture",
-            'img': "scripts/random.jpg"
-        }
-        data3 = {
-            'text': 'what is the brand of this camera?',
-            'img': '/home/ubuntu/kaichen/data/TextVQA/val/train_images/003a8ae2ef43b901.jpg'
-        }
-        response = model.infer(data1)
-        print(response)
+        if args.mllm == 'qwen2_vl':
+            data1 = {
+                'text': "describe this image",
+                'img': "scripts/test.jpg"
+            }
+            data2 = {
+                'text': "What are the words in the picture",
+                'img': "scripts/random.jpg"
+            }
+            data3 = {
+                'text': 'what is the brand of this camera?',
+                'img': '/home/ubuntu/kaichen/data/TextVQA/val/train_images/003a8ae2ef43b901.jpg'
+            }
+            response = model.infer(data1)
+            print(response)
+        elif args.mllm == 'qwen2_audio':
+            data = {
+                'text': "What's that sound?",
+                'audio': "scripts/glass-breaking.mp3"
+            }
+            print(model.infer(data))
 
     elif args.dataset == 'text_vqa':
         text_vqa_path = "/mnt/kaichen/data/TextVQA"
