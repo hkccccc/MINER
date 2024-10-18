@@ -1,7 +1,7 @@
 # MINER
 
 <p align="center">
-    ![image](https://github.com/huang-kc/MINER/imgs/MINER.pdf)
+    ![image](https://github.com/huang-kc/MINER/blob/main/imgs/MINER.pdf)
 <p>
 
 ## Star History
