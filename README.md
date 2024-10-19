@@ -4,6 +4,10 @@
     <img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width:85%;" />
 <p>
 
+<center>
+    # MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models
+</center>
+
 # MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models
 <h1 style="text-align: center;"> 
   MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models 
