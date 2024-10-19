@@ -1,15 +1,5 @@
 # MINER
 
-![image](https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png)
-
-<div style="width: 100%; display: block;">
-  <img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width: 85%; display: block; margin: auto;" />
-</div>
-
-<div style="display: flex; justify-content: center;">
-  <img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width:50%;" />
-</div>
-
 <p align="center">
     <img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width:85%;" />
 <p>
@@ -50,3 +40,9 @@
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=huang-kc/MINER&type=Date)](https://star-history.com/#huang-kc/MINER&Date)
+
+<a href="https://star-history.com/#huang-kc/MINER&Date">
+  <img src="https://api.star-history.com/svg?repos=huang-kc/MINER&type=Date" alt="Star History Chart" style="width: 50%;" />
+</a>
+
+
