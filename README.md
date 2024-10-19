@@ -39,10 +39,6 @@
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=huang-kc/MINER&type=Date)](https://star-history.com/#huang-kc/MINER&Date)
-
 <a href="https://star-history.com/#huang-kc/MINER&Date">
   <img src="https://api.star-history.com/svg?repos=huang-kc/MINER&type=Date" alt="Star History Chart" style="width: 50%;" />
 </a>
-
-
