@@ -1,7 +1,11 @@
 # MINER
 
 ![image](https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png)
-<img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width:70%;" />
+
+<div style="text-align: center;">
+  <img src="https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER-1.png" alt="image" style="width:85%;" />
+</div>
+
 
 # MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models
 
