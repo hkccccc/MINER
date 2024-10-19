@@ -1,7 +1,6 @@
 # MINER
-
 ![image](https://raw.githubusercontent.com/huang-kc/MINER/refs/heads/main/imgs/MINER.png)
-
+# MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models
 <div>
 <div align="center">
 		<a href='https://www.lamda.nju.edu.cn/huangkc' target='_blank'>Kaichen Huang<sup>1,3</sup></a>
