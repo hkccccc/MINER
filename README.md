@@ -24,6 +24,17 @@
 
 ---
 
+## Cite
+
+```bibtex
+@article{huang2024miner,
+  title={MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models},
+  author={Huang, Kaichen and Huo, Jiahao and Yan, Yibo and Wang, Kun and Yue, Yutao and Hu, Xuming},
+  journal={arXiv preprint arXiv:2410.04819},
+  year={2024}
+}
+```
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=huang-kc/MINER&type=Date)](https://star-history.com/#huang-kc/MINER&Date)
