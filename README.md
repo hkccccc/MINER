@@ -5,6 +5,9 @@
 <p>
 
 # MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models
+<h1 style="text-align: center;"> 
+  MINER: Mining the Underlying Pattern of Modality-Specific Neurons in Multimodal Large Language Models 
+</h1>
 
 <div>
 <div align="center">
